@@ -126,4 +126,3 @@ class PDFChunker:
 def chunk_pdf(pdf_path: str, **kwargs) -> list[dict[str, Any]]:
     """Convenience wrapper."""
     return PDFChunker(**kwargs).chunk_pdf(pdf_path)
-# semantic labeling active
