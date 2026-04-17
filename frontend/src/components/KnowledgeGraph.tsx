@@ -17,33 +17,33 @@ interface GEdge { source: string; target: string; }
 
 /* ── Mock data ───────────────────────────────── */
 const MOCK_NODES: Omit<GNode, 'x' | 'y' | 'vx' | 'vy'>[] = [
-  { id: 'LangGraph',          retention: 0.92, urgency: 0.08, file: 'lecture.pdf' },
-  { id: 'LangChain',          retention: 0.84, urgency: 0.16, file: 'lecture.pdf' },
-  { id: 'Ebbinghaus Curve',   retention: 0.78, urgency: 0.22, file: 'memory.pdf' },
-  { id: 'SM-2 Algorithm',     retention: 0.83, urgency: 0.17, file: 'memory.pdf' },
-  { id: 'Vector Embeddings',  retention: 0.61, urgency: 0.39, file: 'nlp.pdf' },
-  { id: 'ChromaDB',           retention: 0.47, urgency: 0.53, file: 'nlp.pdf' },
-  { id: 'FastAPI',            retention: 0.55, urgency: 0.45, file: 'backend.pdf' },
-  { id: 'Pydantic',           retention: 0.74, urgency: 0.26, file: 'backend.pdf' },
-  { id: 'Hybrid Retrieval',   retention: 0.68, urgency: 0.32, file: 'retrieval.pdf' },
-  { id: 'Forgetting Curve',   retention: 0.42, urgency: 0.58, file: 'memory.pdf' },
-  { id: 'Spaced Repetition',  retention: 0.88, urgency: 0.12, file: 'memory.pdf' },
-  { id: 'Knowledge Graph',    retention: 0.71, urgency: 0.29, file: 'lecture.pdf' },
+  { id: 'LangGraph', retention: 0.92, urgency: 0.08, file: 'lecture.pdf' },
+  { id: 'LangChain', retention: 0.84, urgency: 0.16, file: 'lecture.pdf' },
+  { id: 'Ebbinghaus Curve', retention: 0.78, urgency: 0.22, file: 'memory.pdf' },
+  { id: 'SM-2 Algorithm', retention: 0.83, urgency: 0.17, file: 'memory.pdf' },
+  { id: 'Vector Embeddings', retention: 0.61, urgency: 0.39, file: 'nlp.pdf' },
+  { id: 'ChromaDB', retention: 0.47, urgency: 0.53, file: 'nlp.pdf' },
+  { id: 'FastAPI', retention: 0.55, urgency: 0.45, file: 'backend.pdf' },
+  { id: 'Pydantic', retention: 0.74, urgency: 0.26, file: 'backend.pdf' },
+  { id: 'Hybrid Retrieval', retention: 0.68, urgency: 0.32, file: 'retrieval.pdf' },
+  { id: 'Forgetting Curve', retention: 0.42, urgency: 0.58, file: 'memory.pdf' },
+  { id: 'Spaced Repetition', retention: 0.88, urgency: 0.12, file: 'memory.pdf' },
+  { id: 'Knowledge Graph', retention: 0.71, urgency: 0.29, file: 'lecture.pdf' },
 ];
 
 const MOCK_EDGES: GEdge[] = [
-  { source: 'LangChain',        target: 'LangGraph'        },
-  { source: 'LangGraph',        target: 'Hybrid Retrieval' },
-  { source: 'Hybrid Retrieval', target: 'ChromaDB'         },
-  { source: 'Hybrid Retrieval', target: 'Vector Embeddings'},
-  { source: 'ChromaDB',         target: 'Vector Embeddings'},
+  { source: 'LangChain', target: 'LangGraph' },
+  { source: 'LangGraph', target: 'Hybrid Retrieval' },
+  { source: 'Hybrid Retrieval', target: 'ChromaDB' },
+  { source: 'Hybrid Retrieval', target: 'Vector Embeddings' },
+  { source: 'ChromaDB', target: 'Vector Embeddings' },
   { source: 'Ebbinghaus Curve', target: 'Forgetting Curve' },
-  { source: 'Forgetting Curve', target: 'SM-2 Algorithm'   },
-  { source: 'SM-2 Algorithm',   target: 'Spaced Repetition'},
-  { source: 'FastAPI',          target: 'Pydantic'         },
-  { source: 'FastAPI',          target: 'LangGraph'        },
-  { source: 'Knowledge Graph',  target: 'ChromaDB'         },
-  { source: 'Spaced Repetition',target: 'Ebbinghaus Curve' },
+  { source: 'Forgetting Curve', target: 'SM-2 Algorithm' },
+  { source: 'SM-2 Algorithm', target: 'Spaced Repetition' },
+  { source: 'FastAPI', target: 'Pydantic' },
+  { source: 'FastAPI', target: 'LangGraph' },
+  { source: 'Knowledge Graph', target: 'ChromaDB' },
+  { source: 'Spaced Repetition', target: 'Ebbinghaus Curve' },
 ];
 
 /* ── Color by retention ──────────────────────── */
@@ -141,16 +141,16 @@ const Tooltip = ({ node, offset }: { node: GNode | null; offset: { x: number; y:
 
 /* ── Knowledge Graph ─────────────────────────── */
 const KnowledgeGraph = () => {
-  const svgRef   = useRef<SVGSVGElement>(null);
-  const [nodes, setNodes]     = useState<GNode[]>([]);
-  const [edges, setEdges]     = useState<GEdge[]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [nodes, setNodes] = useState<GNode[]>([]);
+  const [edges, setEdges] = useState<GEdge[]>([]);
   const [hovered, setHovered] = useState<GNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom]       = useState(1);
+  const [zoom, setZoom] = useState(1);
   const [running, setRunning] = useState(true);
-  const [isMock, setIsMock]   = useState(false);
-  const animRef               = useRef<number>(0);
-  const nodesRef              = useRef<GNode[]>([]);
+  const [isMock, setIsMock] = useState(false);
+  const animRef = useRef<number>(0);
+  const nodesRef = useRef<GNode[]>([]);
 
   const W = 900, H = 600;
 
