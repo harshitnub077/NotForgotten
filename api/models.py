@@ -61,7 +61,7 @@ class ChunkSource(BaseModel):
 class SessionQueryResponse(BaseModel):
     session_id: str
     answer: str
-    sources: list[ChunkSource]
+    chunks: list[ChunkSource]
     reteach_count: int = 0
     schedule_message: Optional[str] = None
     next_review_info: dict[str, str] = {}
@@ -73,7 +73,7 @@ class SessionQueryResponse(BaseModel):
 
 
 class SessionRateRequest(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     concept_id: str
     rating: int = Field(..., ge=1, le=5)
 
@@ -99,6 +99,24 @@ class ConceptMemoryRecord(BaseModel):
     last_review: Optional[str]
     next_review: Optional[str]
     retention_prob: float
+    urgency_score: float
+
+
+class AtRiskConcept(BaseModel):
+    concept_id: str
+    retention_prob: float
+    urgency_score: float
+
+
+class WeeklyReview(BaseModel):
+    day: str
+    count: int
+
+
+class RecentSource(BaseModel):
+    filename: str
+    upload_date: str
+    concept_count: int
 
 
 class DashboardResponse(BaseModel):
