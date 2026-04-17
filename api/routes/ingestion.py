@@ -17,6 +17,8 @@ router = APIRouter(prefix="/ingest", tags=["ingestion"])
 class IngestResponse(BaseModel):
     filename: str
     chunks_imported: int
+    concepts_detected: int
+    concept_tags: list[str]
     message: str
 
 
@@ -41,11 +43,13 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     try:
         # Run the ingestion pipeline
-        count = ingest_pdf(tmp_path)
+        count, tags = ingest_pdf(tmp_path, original_filename=file.filename)
         
         return IngestResponse(
             filename=file.filename,
             chunks_imported=count,
+            concepts_detected=len(tags),
+            concept_tags=tags,
             message=f"Successfully ingested '{file.filename}' into vector memory."
         )
     except Exception as e:
@@ -54,3 +58,21 @@ async def upload_pdf(file: UploadFile = File(...)):
         # Cleanup
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+@router.get("/sources")
+def get_sources():
+    """Return history of uploaded PDF files."""
+    from memory.schema import get_conn
+    with get_conn() as conn:
+        rows = conn.execute("SELECT filename, upload_date, size_bytes, chunk_count, concept_count FROM source_files ORDER BY upload_date DESC").fetchall()
+    return [
+        {
+            "filename": r[0],
+            "upload_date": r[1],
+            "size_bytes": r[2],
+            "chunk_count": r[3],
+            "concept_count": r[4]
+        }
+        for r in rows
+    ]
