@@ -6,19 +6,19 @@ import {
   RotateCcw, UploadCloud, Network, Zap,
 } from 'lucide-react';
 
-import Dashboard      from './components/Dashboard';
-import TutorChat      from './components/TutorChat';
-import ReviewPage     from './components/ReviewPage';
-import IngestModule   from './components/IngestModule';
+import Dashboard from './components/Dashboard';
+import TutorChat from './components/TutorChat';
+import ReviewPage from './components/ReviewPage';
+import IngestModule from './components/IngestModule';
 import KnowledgeGraph from './components/KnowledgeGraph';
 
 /* ── Nav item config ─────────────────────────── */
 const NAV = [
-  { to: '/',       icon: <LayoutDashboard size={17} />, label: 'Dashboard'   },
-  { to: '/tutor',  icon: <MessageSquare   size={17} />, label: 'AI Tutor'    },
-  { to: '/review', icon: <RotateCcw       size={17} />, label: 'Review'      },
-  { to: '/upload', icon: <UploadCloud     size={17} />, label: 'Upload'      },
-  { to: '/graph',  icon: <Network         size={17} />, label: 'Knowledge Graph' },
+  { to: '/', icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
+  { to: '/tutor', icon: <MessageSquare size={17} />, label: 'AI Tutor' },
+  { to: '/review', icon: <RotateCcw size={17} />, label: 'Review' },
+  { to: '/upload', icon: <UploadCloud size={17} />, label: 'Upload' },
+  { to: '/graph', icon: <Network size={17} />, label: 'Knowledge Graph' },
 ];
 
 /* ── Sidebar ─────────────────────────────────── */
@@ -102,7 +102,7 @@ const Sidebar = () => {
                   marginLeft: 'auto', background: 'var(--danger)', color: 'white',
                   fontSize: '0.65rem', fontWeight: 700,
                   padding: '1px 6px', borderRadius: 'var(--r-full)',
-                }}>3</span>
+                }}>!</span>
               )}
             </RRNavLink>
           );
@@ -142,7 +142,7 @@ const Sidebar = () => {
 const pageVariants = {
   initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
-  exit:    { opacity: 0, y: -6, transition: { duration: 0.15 } },
+  exit: { opacity: 0, y: -6, transition: { duration: 0.15 } },
 };
 
 function AppInner() {
@@ -162,11 +162,11 @@ function AppInner() {
             style={{ flex: 1 }}
           >
             <Routes location={location}>
-              <Route path="/"       element={<Dashboard />}      />
-              <Route path="/tutor"  element={<TutorChat />}      />
-              <Route path="/review" element={<ReviewPage />}     />
-              <Route path="/upload" element={<IngestModule />}   />
-              <Route path="/graph"  element={<KnowledgeGraph />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/tutor" element={<TutorChat />} />
+              <Route path="/review" element={<ReviewPage />} />
+              <Route path="/upload" element={<IngestModule />} />
+              <Route path="/graph" element={<KnowledgeGraph />} />
             </Routes>
           </motion.div>
         </AnimatePresence>
