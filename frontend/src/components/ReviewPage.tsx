@@ -52,10 +52,11 @@ const MOCK_CARDS: Card[] = [
 ];
 
 const RATING_CONFIG = [
-  { score: 1, label: 'Again',  emoji: '😰', color: '#ef4444', hint: 'Complete blackout' },
-  { score: 2, label: 'Hard',   emoji: '😓', color: '#f97316', hint: 'Recalled with major effort' },
-  { score: 3, label: 'Good',   emoji: '🙂', color: '#84cc16', hint: 'Recalled after a pause' },
-  { score: 4, label: 'Easy',   emoji: '😎', color: '#10b981', hint: 'Instant, perfect recall' },
+  { score: 1, label: 'Again',   emoji: '😰', color: '#ef4444', hint: 'Complete blackout' },
+  { score: 2, label: 'Hard',    emoji: '😓', color: '#f97316', hint: 'Recalled with effort' },
+  { score: 3, label: 'Good',    emoji: '🙂', color: '#84cc16', hint: 'Recalled with pause' },
+  { score: 4, label: 'Easy',    emoji: '😎', color: '#10b981', hint: 'Fast, correct recall' },
+  { score: 5, label: 'Perfect', emoji: '🤩', color: '#6366f1', hint: 'Instant, perfect recall' },
 ];
 
 /* ── Flip Card Component ─────────────────────── */
@@ -168,6 +169,7 @@ const ReviewPage = () => {
   const [rating, setRating]   = useState(false);
   const [done, setDone]       = useState(false);
   const [isMock, setIsMock]   = useState(false);
+  const [sessionId]   = useState(() => crypto.randomUUID());
   const [reviewed, setReviewed] = useState<{ concept_id: string; score: number }[]>([]);
 
   const loadCards = async () => {
@@ -199,7 +201,11 @@ const ReviewPage = () => {
     setRating(true);
     const card = cards[cardIdx];
     try {
-      await axios.post('/session/rate', { concept_id: card.concept_id, rating: score });
+      await axios.post('/session/rate', {
+        session_id: sessionId,
+        concept_id: card.concept_id,
+        rating: score
+      });
     } catch {}
     setReviewed(prev => [...prev, { concept_id: card.concept_id, score }]);
 
