@@ -10,20 +10,20 @@ interface LogLine { time: string; text: string; type: 'info' | 'success' | 'erro
 
 /* ── Log colors ──────────────────────────────── */
 const LOG_COLOR: Record<LogLine['type'], string> = {
-  info:    'var(--text-muted)',
-  step:    'var(--indigo-300)',
+  info: 'var(--text-muted)',
+  step: 'var(--indigo-300)',
   success: 'var(--success)',
-  error:   'var(--danger)',
+  error: 'var(--danger)',
 };
 
 /* ── Main Component ──────────────────────────── */
 const IngestModule = () => {
-  const [file, setFile]       = useState<File | null>(null);
-  const [status, setStatus]   = useState<Status>('IDLE');
-  const [logs, setLogs]       = useState<LogLine[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<Status>('IDLE');
+  const [logs, setLogs] = useState<LogLine[]>([]);
   const [dragging, setDragging] = useState(false);
-  const logRef                = useRef<HTMLDivElement>(null);
-  const inputRef              = useRef<HTMLInputElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const pushLog = useCallback((text: string, type: LogLine['type'] = 'info') => {
     const line: LogLine = { time: new Date().toLocaleTimeString(), text, type };
@@ -38,9 +38,9 @@ const IngestModule = () => {
   }, []);
 
   /* Drag handlers */
-  const onDragOver  = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = (e: React.DragEvent) => { e.preventDefault(); setDragging(false); };
-  const onDrop      = (e: React.DragEvent) => {
+  const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
     const f = e.dataTransfer.files?.[0];
     if (f?.name.toLowerCase().endsWith('.pdf')) setFile(f);
@@ -59,12 +59,12 @@ const IngestModule = () => {
     setLogs([]);
 
     const steps = [
-      { delay: 0,    text: `Transmitting "${file.name}" to ingestion pipeline…`, type: 'info'  as const },
-      { delay: 800,  text: 'Extracting text and layout via LayoutParser…',        type: 'step'  as const },
-      { delay: 1800, text: 'Performing semantic chunking via LLM…',                type: 'step'  as const },
-      { delay: 3000, text: 'Generating SentenceTransformer vector embeddings…',   type: 'step'  as const },
-      { delay: 4400, text: 'Inserting embeddings into ChromaDB vector store…',    type: 'step'  as const },
-      { delay: 5600, text: 'Updating Neo4j Concept Knowledge Graph…',             type: 'step'  as const },
+      { delay: 0, text: `Transmitting "${file.name}" to ingestion pipeline…`, type: 'info' as const },
+      { delay: 800, text: 'Extracting text and layout via LayoutParser…', type: 'step' as const },
+      { delay: 1800, text: 'Performing semantic chunking via LLM…', type: 'step' as const },
+      { delay: 3000, text: 'Generating SentenceTransformer vector embeddings…', type: 'step' as const },
+      { delay: 4400, text: 'Inserting embeddings into ChromaDB vector store…', type: 'step' as const },
+      { delay: 5600, text: 'Updating Neo4j Concept Knowledge Graph…', type: 'step' as const },
     ];
 
     steps.forEach(s => setTimeout(() => pushLog(s.text, s.type), s.delay));
