@@ -11,6 +11,7 @@ from api.routes.ingestion import router as ingestion_router
 from api.routes.session import router as session_router
 from api.routes.chat import router as chat_router
 from api.routes.graph import router as graph_router
+from api.routes.concepts import router as concepts_router
 from memory.schema import init_db
 
 
@@ -70,6 +71,7 @@ app.include_router(dashboard_router)
 app.include_router(ingestion_router)
 app.include_router(chat_router)
 app.include_router(graph_router)
+app.include_router(concepts_router)
 
 
 # ---------------------------------------------------------------------------
