@@ -130,7 +130,7 @@ def session_query(req: SessionQueryRequest) -> SessionQueryResponse:
     return SessionQueryResponse(
         session_id=session_id,
         answer=final_state.get("answer", ""),
-        sources=sources,
+        chunks=sources,
         reteach_count=final_state.get("reteach_count", 0),
         schedule_message=final_state.get("schedule_message"),
         next_review_info=final_state.get("next_review_info", {}),
@@ -149,6 +149,7 @@ def session_rate(req: SessionRateRequest) -> SessionRateResponse:
     Use this when the client handles the assess step separately from query.
     """
     init_db()
+    session_id = req.session_id or str(uuid.uuid4())
     now = datetime.now(tz=timezone.utc)
     now_str = now.isoformat()
 
@@ -204,7 +205,7 @@ def session_rate(req: SessionRateRequest) -> SessionRateResponse:
             INSERT INTO session_log (session_id, concept_id, user_rating, timestamp)
             VALUES (?, ?, ?, ?)
             """,
-            (req.session_id, req.concept_id, req.rating, now_str),
+            (session_id, req.concept_id, req.rating, now_str),
         )
 
     # Update knowledge graph
