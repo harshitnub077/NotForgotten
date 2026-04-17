@@ -29,44 +29,31 @@ pip install -r requirements.txt
 ### 2. Configure environment
 ```bash
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY (or ANTHROPIC_API_KEY)
+# Edit .env with your LLM_PROVIDER and API key
 ```
 
-### 3. Ingest a Sample PDF
-**Option A: Command Line**
-```bash
-python3 tests/generate_sample.py
-python3 -m ingestion.importer --pdf sample_concept_notes.pdf
-```
-
-**Option B: API Upload (New)**
-```bash
-# Upload via curl
-curl -X POST http://localhost:8080/ingest -F "file=@sample_concept_notes.pdf"
-```
-
-### 4. Start the API
+### 3. Start the API
 ```bash
 uvicorn api.main:app --reload --port 8080
 ```
 
+### 4. Ingest your own PDF
+```bash
+# Upload via curl or use the Frontend UI
+curl -X POST http://localhost:8080/ingest -F "file=@your_document.pdf"
+```
+
 ### 5. Begin a session
 ```bash
-# Get today's most urgent concepts
-curl -X POST http://localhost:8080/session/start
-
 # Ask a question
 curl -X POST http://localhost:8080/session/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "Explain gradient descent", "session_id": "abc123"}'
+  -d '{"query": "Summarize the key points", "session_id": "abc123"}'
 
-# Rate your understanding (1-5)
+# Rate your understanding (1-5) to update memory
 curl -X POST http://localhost:8080/session/rate \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "abc123", "concept_id": "gradient_descent", "rating": 4}'
-
-# View full memory dashboard
-curl http://localhost:8080/dashboard
+  -d '{"session_id": "abc123", "concept_id": "your_concept_id", "rating": 4}'
 ```
 
 ## API Endpoints
