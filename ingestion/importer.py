@@ -9,8 +9,10 @@ from typing import Any
 import chromadb
 from dotenv import load_dotenv
 
-from ingestion.embedder import get_embedder
 from ingestion.pdf_chunker import PDFChunker
+from memory.schema import get_conn
+import datetime
+import os
 
 load_dotenv()
 
@@ -71,8 +73,8 @@ def import_chunks(
 # High-level entry point
 # ---------------------------------------------------------------------------
 
-def ingest_pdf(pdf_path: str) -> int:
-    """Full pipeline: PDF → chunks → embed → ChromaDB."""
+def ingest_pdf(pdf_path: str, original_filename: str = "unknown.pdf") -> tuple[int, list[str]]:
+    """Full pipeline: PDF → chunks → embed → ChromaDB + Memory SQLite."""
     os.makedirs(DB_DIR, exist_ok=True)
     client = chromadb.PersistentClient(path=DB_DIR)
 
@@ -80,8 +82,41 @@ def ingest_pdf(pdf_path: str) -> int:
         chunker = PDFChunker()
         chunks = chunker.chunk_pdf(pdf_path)
         print(f"[PDFChunker] Extracted {len(chunks)} chunks from '{pdf_path}'.")
+        
+        # Override the source_file in chunks with the original filename instead of the temp path
+        for chunk in chunks:
+            chunk["source_file"] = original_filename
+
         count = import_chunks(chunks, client)
-        return count
+        
+        # Extract unique concept tags
+        concept_tags = list({c["concept_tag"] for c in chunks if c.get("concept_tag")})
+        
+        # Insert metadata into SQLite
+        size_bytes = os.path.getsize(pdf_path)
+        now_str = datetime.datetime.utcnow().isoformat()
+        
+        with get_conn() as conn:
+            # 1. Register the source file
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO source_files (filename, upload_date, size_bytes, chunk_count, concept_count)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (original_filename, now_str, size_bytes, count, len(concept_tags))
+            )
+            
+            # 2. Initialize memory rows for new concepts
+            for tag in concept_tags:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO concept_memory (concept_id, source_file, easiness_factor, interval_days, repetitions, retention_prob)
+                    VALUES (?, ?, 2.5, 1, 0, 1.0)
+                    """,
+                    (tag, original_filename)
+                )
+
+        return count, concept_tags
     finally:
         pass
 
