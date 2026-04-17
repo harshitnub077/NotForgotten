@@ -75,10 +75,31 @@ def get_conn() -> Generator[sqlite3.Connection, None, None]:
 # ---------------------------------------------------------------------------
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply any missing schema migrations idempotently."""
+    # Add source_file column to concept_memory if it doesn't exist
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(concept_memory)").fetchall()}
+    if "source_file" not in existing:
+        conn.execute("ALTER TABLE concept_memory ADD COLUMN source_file TEXT")
+        print("[DB] Migration applied: added source_file column to concept_memory")
+
+    # Create source_files table if it doesn't exist (safe — uses IF NOT EXISTS)
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS source_files (
+        filename       TEXT PRIMARY KEY,
+        upload_date    TEXT NOT NULL,
+        size_bytes     INTEGER NOT NULL,
+        chunk_count    INTEGER NOT NULL,
+        concept_count  INTEGER NOT NULL
+    );
+    """)
+
+
 def init_db() -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist, then apply migrations."""
     with get_conn() as conn:
         conn.executescript(_DDL)
+        _migrate(conn)
     print(f"[DB] Initialized at {get_db_path()}")
 
 
