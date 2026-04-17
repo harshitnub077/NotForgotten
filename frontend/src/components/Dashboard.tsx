@@ -8,30 +8,23 @@ import {
 } from 'recharts';
 import { Brain, Activity, Clock, TrendingUp, Zap, ArrowRight, RefreshCw, AlertTriangle, Database } from 'lucide-react';
 
-/* ── Mock data ───────────────────────────────── */
-const MOCK_CONCEPTS = [
-  { concept_id: 'LangGraph',         retention_prob: 0.92, urgency_score: 0.08, interval_days: 14, next_review: 'In 5 days' },
-  { concept_id: 'Ebbinghaus Curve',  retention_prob: 0.78, urgency_score: 0.22, interval_days: 7,  next_review: 'Tomorrow' },
-  { concept_id: 'ChromaDB Search',   retention_prob: 0.61, urgency_score: 0.39, interval_days: 4,  next_review: 'Today' },
-  { concept_id: 'FastAPI DI',        retention_prob: 0.55, urgency_score: 0.45, interval_days: 3,  next_review: 'Today' },
-  { concept_id: 'SM-2 Algorithm',    retention_prob: 0.83, urgency_score: 0.17, interval_days: 9,  next_review: 'In 2 days' },
-  { concept_id: 'Vector Embeddings', retention_prob: 0.47, urgency_score: 0.53, interval_days: 2,  next_review: 'Today' },
-];
+/* ── Mock data (Empty) ───────────────────────── */
+const MOCK_CONCEPTS: any[] = [];
 
 const MOCK_STATS = {
-  total_concepts: 142, avg_retention_prob: 0.72,
-  total_sessions: 27,  avg_interval_days: 8.2,
+  total_concepts: 0, avg_retention_prob: 0,
+  total_sessions: 0, avg_interval_days: 0,
 };
 
 // Forgetting curve data (with vs without review)
 const CURVE_DATA = [
-  { day: 'D0', noReview: 1.0,  withReview: 1.0  },
+  { day: 'D0', noReview: 1.0, withReview: 1.0 },
   { day: 'D1', noReview: 0.58, withReview: 0.88 },
   { day: 'D3', noReview: 0.44, withReview: 0.79 },
   { day: 'D7', noReview: 0.33, withReview: 0.87 },
-  { day: 'D14',noReview: 0.24, withReview: 0.92 },
-  { day: 'D21',noReview: 0.18, withReview: 0.90 },
-  { day: 'D30',noReview: 0.14, withReview: 0.88 },
+  { day: 'D14', noReview: 0.24, withReview: 0.92 },
+  { day: 'D21', noReview: 0.18, withReview: 0.90 },
+  { day: 'D30', noReview: 0.14, withReview: 0.88 },
 ];
 
 /* ── Helpers ─────────────────────────────────── */
@@ -73,16 +66,16 @@ const CTip = ({ active, payload, label }: any) => {
 /* ── Dashboard ───────────────────────────────── */
 const Dashboard = () => {
   const [concepts, setConcepts] = useState(MOCK_CONCEPTS);
-  const [stats, setStats]       = useState(MOCK_STATS);
-  const [loading, setLoading]   = useState(true);
-  const [isMock, setIsMock]     = useState(false);
+  const [stats, setStats] = useState(MOCK_STATS);
+  const [loading, setLoading] = useState(true);
+  const [isMock, setIsMock] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = async () => {
     try {
       const r = await axios.get('/dashboard');
       if (r.data?.memory?.length) setConcepts(r.data.memory);
-      if (r.data?.stats)          setStats(r.data.stats);
+      if (r.data?.stats) setStats(r.data.stats);
       setIsMock(false);
     } catch {
       setIsMock(true);
@@ -167,7 +160,7 @@ const Dashboard = () => {
                 <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 1]} tickFormatter={v => `${Math.round(v * 100)}%`} />
                 <Tooltip content={<CTip />} />
-                <Line type="monotone" dataKey="noReview"   name="No Review"   stroke="var(--danger)"  strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                <Line type="monotone" dataKey="noReview" name="No Review" stroke="var(--danger)" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                 <Line type="monotone" dataKey="withReview" name="With Reviews" stroke="var(--success)" strokeWidth={2.5} dot={false} />
               </LineChart>
             </ResponsiveContainer>
