@@ -17,7 +17,7 @@ env/
 
 # Data (local only)
 data/
-*.db
+*.db*
 *.sqlite3
 
 # Models cache (sentence-transformers downloads here)

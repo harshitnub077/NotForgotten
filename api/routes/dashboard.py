@@ -33,8 +33,8 @@ def dashboard() -> DashboardResponse:
             repetitions=r["repetitions"],
             last_review=r["last_review"],
             next_review=r["next_review"],
-            retention_prob=r["retention_prob"],
-            urgency_score=1.0 - (r["retention_prob"] or 1.0),
+            retention_prob=r["retention_prob"] if r["retention_prob"] is not None else 1.0,
+            urgency_score=1.0 - (r["retention_prob"] if r["retention_prob"] is not None else 1.0),
         )
         for r in memory_rows
     ]

@@ -16,7 +16,6 @@ _DB_PATH = os.getenv("DB_PATH", "./data/memory.db")
 # ---------------------------------------------------------------------------
 # DDL
 # ---------------------------------------------------------------------------
-
 _DDL = """
 CREATE TABLE IF NOT EXISTS concept_memory (
     concept_id       TEXT PRIMARY KEY,
