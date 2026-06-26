@@ -72,11 +72,3 @@ curl -X POST http://localhost:8080/session/rate \
 - **Hybrid Retrieval** — `score = α × semantic_similarity + (1−α) × urgency`. Chunks from forgotten concepts get boosted automatically.
 - **Re-Teach Mode** — If you rate understanding ≤ 2, the agent loops back and retrieves additional context.
 
-## Running Tests
-
-```bash
-pytest tests/ -v
-
-# 30-day simulation harness
-python tests/simulation_harness.py
-```
