@@ -129,7 +129,7 @@ npm --prefix frontend run build && .venv/bin/uvicorn api.main:app --port 8080
 .venv/bin/python -m pytest
 ```
 
-94 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
+93 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
 
 ## Roadmap
 
