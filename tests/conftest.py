@@ -20,6 +20,8 @@ def _isolate_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv("DB_PATH", db)
     monkeypatch.setenv("GRAPH_PATH", graph)
+    # Never hit a real LLM provider from the test suite.
+    monkeypatch.setenv("NOTFORGOTTEN_OFFLINE", "1")
 
     # Also patch the module-level _DB_PATH that was already imported
     try:
