@@ -139,7 +139,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
         conn.execute("UPDATE documents SET title = ? WHERE id = ?", (extracted.title[:200], doc_id))
 
     _job_update(job_id, "chunking", 0.12, f"Splitting {len(extracted.pages)} sections into passages…")
-    chunks = chunk_pages(extracted.pages)
+    chunks = chunk_pages(extracted.pages, extracted.section_ids())
     if not chunks:
         raise ValueError("No readable text found.")
     texts = [c.text for c in chunks]
@@ -148,7 +148,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
     vectors = embed_texts(texts)
 
     _job_update(job_id, "concepts", 0.38, "Discovering concepts with clustering…")
-    drafts = discover_concepts(texts, vectors, sections=[c.page for c in chunks], headed=extracted.headed)
+    drafts = discover_concepts(texts, vectors, sections=[c.section for c in chunks], headed=extracted.headed)
     if use_llm and refine_with_llm(drafts, texts):
         _job_update(job_id, "naming", 0.45, f"Named {len(drafts)} concepts with AI.")
     else:

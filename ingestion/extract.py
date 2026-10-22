@@ -7,7 +7,7 @@ import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
 from nlp.text import clean_text
@@ -21,6 +21,52 @@ class Extracted:
     title: str
     pages: List[Tuple[int, str]]   # (page number, text)
     headed: bool = False           # pages are author-headed sections, not layout pages
+    sections: Optional[List[int]] = None  # section id per entry in *pages* (defaults to its index)
+
+    def section_ids(self) -> List[int]:
+        return self.sections if self.sections is not None else list(range(len(self.pages)))
+
+
+_HEADING_LINE = re.compile(r"^(?:\d+(?:\.\d+)*\.?\s+)?[A-Z][^.!?;:,]{2,68}$")
+
+
+def _is_heading(line: str, nxt: str) -> bool:
+    """A short title-like line followed by running text."""
+    words = line.split()
+    if not 1 <= len(words) <= 10 or len(nxt) <= 50:
+        return False
+    if re.fullmatch(r"[\d\s\-–.]+", line):  # page numbers, dates
+        return False
+    if line.isupper():
+        return len(words) <= 6
+    return bool(_HEADING_LINE.match(line))
+
+
+def split_pdf_headings(pages: List[Tuple[int, str]]) -> Tuple[List[Tuple[int, str]], List[int], int]:
+    """Split page text at heading-like lines. Returns blocks, their section ids, heading count."""
+    blocks: List[Tuple[int, str]] = []
+    sections: List[int] = []
+    section, headings = 0, 0
+    for page, text in pages:
+        lines = [ln.strip() for ln in text.split("\n")]
+        lines = [ln for ln in lines if ln]
+        buf: List[str] = []
+        for i, line in enumerate(lines):
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            if _is_heading(line, nxt):
+                if buf:
+                    blocks.append((page, "\n".join(buf)))
+                    sections.append(section)
+                    buf = []
+                headings += 1
+                section += 1
+                buf.append(line + ".")
+            else:
+                buf.append(line)
+        if buf:
+            blocks.append((page, "\n".join(buf)))
+            sections.append(section)
+    return blocks, sections, headings
 
 
 def extract_pdf(path: str, fallback_title: str) -> Extracted:
@@ -36,8 +82,16 @@ def extract_pdf(path: str, fallback_title: str) -> Extracted:
         raise ValueError("No extractable text found — is this a scanned PDF?")
     title = fallback_title
     meta_title = (reader.metadata or {}).get("/Title") if reader.metadata else None
-    if isinstance(meta_title, str) and 3 < len(meta_title.strip()) < 120:
+    if isinstance(meta_title, str) and 3 < len(meta_title.strip()) < 120 and not meta_title.strip().endswith((".txt", ".doc", ".docx", ".pdf")):
         title = meta_title.strip()
+    else:
+        # Lecture slides and exported notes usually open with their title.
+        first = pages[0][1].strip().split("\n", 1)[0].strip()
+        if 4 <= len(first) <= 90 and not first.endswith((".", ",", ";")):
+            title = first
+    blocks, sections, headings = split_pdf_headings(pages)
+    if headings >= 3:
+        return Extracted(title, blocks, headed=True, sections=sections)
     return Extracted(title, pages)
 
 

@@ -1,0 +1,21 @@
+services:
+  notforgotten:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Container paths win over any local-dev paths in .env.
+      CORS_ORIGINS: http://localhost:8080
+      DB_PATH: /data/memory.db
+      CHROMA_DB_DIR: /data/chroma
+      HF_HOME: /data/hf_cache
+      SENTENCE_TRANSFORMERS_HOME: /opt/models
+    volumes:
+      - notforgotten-data:/data
+    restart: unless-stopped
+
+volumes:
+  notforgotten-data:

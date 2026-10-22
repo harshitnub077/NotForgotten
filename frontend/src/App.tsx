@@ -132,6 +132,7 @@ function TabBar() {
 function Shell() {
   const location = useLocation();
   const bare = location.pathname === '/welcome';
+  const focus = location.pathname === '/review'; // review sessions hide the phone tab bar
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -166,10 +167,10 @@ function Shell() {
   return (
     <div className="shell">
       <Rail />
-      <main className="main" id="main">
+      <main className={`main${focus ? ' focus' : ''}`} id="main">
         {routes}
       </main>
-      <TabBar />
+      {!focus && <TabBar />}
     </div>
   );
 }

@@ -145,7 +145,7 @@ export default function Graph() {
     const maxX = Math.max(...all.map((n) => n.x! + n.w / 2));
     const minY = Math.min(...all.map((n) => n.y! - n.h / 2));
     const maxY = Math.max(...all.map((n) => n.y! + n.h / 2));
-    const k = Math.min(1.4, Math.max(0.35, Math.min((size.w - 48) / (maxX - minX || 1), (size.h - 48) / (maxY - minY || 1))));
+    const k = Math.min(1.4, Math.max(0.75, Math.min((size.w - 48) / (maxX - minX || 1), (size.h - 48) / (maxY - minY || 1))));
     setView({ k, x: (-(minX + maxX) / 2) * k, y: (-(minY + maxY) / 2) * k });
   }
 

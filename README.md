@@ -123,13 +123,23 @@ For a single-server production build:
 npm --prefix frontend run build && .venv/bin/uvicorn api.main:app --port 8080
 ```
 
+### Docker (one container, data in a volume)
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8080. The image bakes in the embedding model and serves the API and the web app on one port; your library lives in the `notforgotten-data` volume. Put an LLM key in `.env` to enable AI features.
+
+> NotForgotten is single-user today: anyone who can reach the server can use the library. Put it behind authentication (or keep it on localhost) before exposing it to the internet.
+
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest
 ```
 
-93 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
+98 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
 
 ## Roadmap
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -21,6 +21,7 @@ class Chunk:
     idx: int
     page: int
     text: str
+    section: int = 0
 
 
 def _token_len(text: str) -> int:
@@ -29,6 +30,7 @@ def _token_len(text: str) -> int:
 
 def chunk_pages(
     pages: Sequence[Tuple[int, str]],
+    sections: Optional[Sequence[int]] = None,
     chunk_tokens: int = CHUNK_TOKENS,
     overlap: int = OVERLAP_TOKENS,
 ) -> List[Chunk]:
@@ -41,7 +43,8 @@ def chunk_pages(
     chunks: List[Chunk] = []
     carry = ""
     carry_page = 0
-    for page, text in pages:
+    sections = list(sections) if sections is not None else list(range(len(pages)))
+    for (page, text), section in zip(pages, sections):
         for piece in splitter.split_text(text):
             piece = piece.strip()
             if is_citation_block(piece):
@@ -53,10 +56,10 @@ def chunk_pages(
             if carry:
                 piece = f"{carry} {piece}"
                 carry = ""
-            chunks.append(Chunk(len(chunks), page, piece))
+            chunks.append(Chunk(len(chunks), page, piece, section))
     if carry:
         if chunks:
             chunks[-1].text += " " + carry
         else:
-            chunks.append(Chunk(0, carry_page, carry))
+            chunks.append(Chunk(0, carry_page, carry, 0))
     return chunks

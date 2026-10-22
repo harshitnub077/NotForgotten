@@ -130,7 +130,11 @@ def discover_concepts(
     headed: bool = False,
 ) -> List[ConceptDraft]:
     emb = np.asarray(embeddings, dtype=np.float32)
-    if headed and sections is not None and 2 <= len(set(sections)) <= max_concepts:
+    # Slide decks have a heading on every slide: dozens of one-passage
+    # sections. Cluster those instead (sections still pull neighbours together).
+    n_sections = len(set(sections)) if sections is not None else 0
+    slide_like = n_sections > 25 and len(sections or []) / max(n_sections, 1) < 1.5
+    if headed and sections is not None and 2 <= n_sections <= max_concepts and not slide_like:
         labels = section_labels(emb, sections)
     else:
         labels = cluster_chunks(emb, max_concepts, sections)

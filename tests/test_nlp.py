@@ -176,3 +176,29 @@ class TestExtraction:
         refs = "Roediger, H. (2006). Test-enhanced learning. Psychological Science. doi:10.1111/x. Karpicke, J. et al. (2008). Journal of Memory, pp. 4-9."
         assert is_citation_block(refs)
         assert not is_citation_block(PHOTO)
+
+
+class TestPdfHeadings:
+    def test_split_at_headings(self):
+        from ingestion.extract import split_pdf_headings
+
+        body = "This is a long paragraph of running text that explains the idea in some detail."
+        page = "\n".join(["Gradient descent", body, body, "2.1 Backpropagation", body, "12", "LOSS FUNCTIONS", body])
+        blocks, sections, headings = split_pdf_headings([(0, page)])
+        assert headings == 3
+        assert len(set(sections)) == 3
+        assert blocks[0][1].startswith("Gradient descent.")
+
+    def test_sentences_are_not_headings(self):
+        from ingestion.extract import _is_heading
+
+        assert not _is_heading("This sentence ends with a period.", "x" * 80)
+        assert not _is_heading("Short title", "too short")
+
+
+def test_slide_decks_are_clustered_not_one_concept_per_slide():
+    rng = np.random.default_rng(3)
+    emb = np.vstack([np.eye(8)[i % 3] * 3 + rng.normal(0, 0.1, 8) for i in range(30)])
+    texts = [f"slide {i} about topic {i % 3} with several words" for i in range(30)]
+    drafts = discover_concepts(texts, emb, sections=list(range(30)), headed=True)
+    assert len(drafts) < 30

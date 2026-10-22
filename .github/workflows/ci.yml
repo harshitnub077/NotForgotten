@@ -36,3 +36,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t notforgotten:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name nf -p 8080:8080 -e NOTFORGOTTEN_OFFLINE=1 notforgotten:ci
+          for i in $(seq 1 60); do curl -sf localhost:8080/api/health && break; sleep 2; done
+          curl -sf localhost:8080/api/health
+          curl -sf localhost:8080/ | grep -q "NotForgotten"

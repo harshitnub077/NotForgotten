@@ -318,6 +318,9 @@ textarea {
   .main {
     padding-bottom: 84px;
   }
+  .main.focus {
+    padding-bottom: 0;
+  }
   .tabbar {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
