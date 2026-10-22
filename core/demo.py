@@ -85,8 +85,10 @@ def simulate_history(doc_ids: List[str], seed: int = 42) -> int:
             doc_ids,
         ).fetchall()
 
-    # Documents were "started" at different times; a few cards stay new.
+    # Documents were "started" at different times; a few cards stay new. The
+    # learner paused two sources recently, so the demo shows real decay.
     doc_start = {d: HISTORY_DAYS - i * 14 for i, d in enumerate(doc_ids)}
+    doc_paused = {d: [0.0, 6.0, 11.0][i % 3] for i, d in enumerate(doc_ids)}
     skipped_days = {d for d in range(HISTORY_DAYS) if rng.random() < 0.18}
     total = 0
     session = new_id("ses")
@@ -96,7 +98,8 @@ def simulate_history(doc_ids: List[str], seed: int = 42) -> int:
         start = doc_start.get(card["document_id"], 30) - rng.uniform(0, 6)
         t = now - timedelta(days=max(start, 1.0))
         state, last = None, None
-        while t < now - timedelta(hours=2):
+        stop_at = now - timedelta(days=doc_paused.get(card["document_id"], 0.0), hours=2)
+        while t < stop_at:
             day_idx = (now - t).days
             if day_idx in skipped_days:
                 t += timedelta(days=1)

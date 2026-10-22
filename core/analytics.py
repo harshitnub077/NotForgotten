@@ -308,7 +308,11 @@ def concept_detail(concept_id: str) -> Optional[Dict[str, Any]]:
         return None
     c = dict(concepts[concept_id])
     rows = fetch_cards("concept_id = ?", (concept_id,))
-    cards = [card_view(r, fsrs, now, with_preview=False) for r in rows]
+    with get_conn() as conn:
+        all_rows = conn.execute(
+            "SELECT * FROM cards WHERE concept_id = ? ORDER BY created_at", (concept_id,)
+        ).fetchall()
+    cards = [{**card_view(r, fsrs, now, with_preview=False), "suspended": bool(r["suspended"])} for r in all_rows]
     stats = concept_stats(fsrs, now)
     c.update(stats.get(concept_id, {"cards": 0, "learned": 0, "due": 0, "retention": None, "stability": None, "mastery": 0.0}))
 

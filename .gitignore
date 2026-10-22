@@ -47,3 +47,8 @@ frontend/node_modules/
 frontend-test/
 frontend/dist/
 .npm/
+
+# Design tooling scratch
+.impeccable/ref/
+.impeccable/review/
+.impeccable/mocks/

@@ -33,6 +33,15 @@ def list_cards(concept_id: Optional[str] = None, document_id: Optional[str] = No
     return [{**card_view(r, fsrs, now, with_preview=False), "suspended": bool(r["suspended"])} for r in rows]
 
 
+@router.get("/cards/{card_id}")
+def get_card(card_id: str) -> dict:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return card_view(row, settings.get_fsrs(), utcnow())
+
+
 class CardIn(BaseModel):
     concept_id: str
     kind: str = Field(default="qa", pattern="^(qa|cloze|explain)$")
