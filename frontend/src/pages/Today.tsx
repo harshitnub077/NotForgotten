@@ -38,8 +38,7 @@ function FirstRun({ onReady }: { onReady: () => void }) {
           <UploadCloud size={44} strokeWidth={2.2} />
         </Picto>
         <div style={{ flex: '1 1 420px' }}>
-          <p style={{ fontWeight: 700, fontSize: '1.1rem' }}>Start here</p>
-          <h1 style={{ fontSize: 'clamp(2.6rem, 6vw, 5.4rem)', letterSpacing: '-0.04em', marginTop: 6 }}>
+          <h1 style={{ fontSize: 'clamp(2.6rem, 6vw, 5.4rem)', letterSpacing: '-0.04em' }}>
             Bring what you need to remember.
           </h1>
           <p className="band-sub" style={{ marginTop: 18 }}>
@@ -180,10 +179,9 @@ export default function Today() {
                 <Repeat2 size={46} strokeWidth={2.2} />
               </Picto>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontWeight: 700, fontSize: '1.15rem' }}>Next up</p>
                 {total > 0 ? (
                   <>
-                    <h1 className="num" style={{ fontSize: 'clamp(3.4rem, 8.5vw, 7.2rem)', marginTop: 4 }}>
+                    <h1 className="num" style={{ fontSize: 'clamp(3rem, 7vw, 5.6rem)' }}>
                       Review {total}
                     </h1>
                     <p style={{ fontSize: 'clamp(1.25rem, 2vw, 1.8rem)', fontWeight: 700, marginTop: 10 }}>
@@ -192,7 +190,7 @@ export default function Today() {
                   </>
                 ) : (
                   <>
-                    <h1 className="num" style={{ fontSize: 'clamp(3.4rem, 8.5vw, 7.2rem)', marginTop: 4 }}>
+                    <h1 className="num" style={{ fontSize: 'clamp(3rem, 7vw, 5.6rem)' }}>
                       All clear.
                     </h1>
                     <p style={{ fontSize: 'clamp(1.15rem, 1.8vw, 1.6rem)', fontWeight: 700, marginTop: 10 }}>

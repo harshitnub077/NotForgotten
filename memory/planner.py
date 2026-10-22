@@ -260,6 +260,11 @@ class ExamPlan:
     total_cards: int = 0
 
 
+def days_until(exam_date: datetime, now: datetime) -> int:
+    """Calendar days from today to the exam date (Nov 12 seen on Oct 22 → 21)."""
+    return max(1, (exam_date.date() - now.date()).days)
+
+
 def plan_exam(
     fsrs: FSRS,
     cards: List[CardMemory],
@@ -268,19 +273,23 @@ def plan_exam(
     now: Optional[datetime] = None,
     review_seconds: float = DEFAULT_REVIEW_SECONDS,
     new_seconds: float = DEFAULT_NEW_SECONDS,
+    new_per_day: Optional[int] = None,
+    new_today: Optional[int] = None,
 ) -> ExamPlan:
     """
     Simulate daily study until *exam_date* assuming successful recall.
 
-    A learned card is reviewed on day d when either
-      • R(d) has fallen below the scheduler's desired retention, or
-      • R on exam day would miss *target* and a review today (Good) would
-        carry it past the exam — the just-in-time final review.
-    New cards are introduced evenly across the first ~60% of the window so
-    every card gets several spaced repetitions before the exam.
+    Day 0 starts from the real schedule, so "today" here is exactly the
+    review queue the learner sees. A learned card is reviewed on day d when
+      • its scheduled due date has arrived, or
+      • it is within the last few days and would otherwise sit below
+        *target* on exam day — the just-in-time final review.
+    New cards arrive at *new_per_day* (the learner's daily limit, with
+    *new_today* left for today); without a limit they are spread across the
+    first ~60% of the window so each gets several spaced repetitions.
     """
     now = now or utcnow()
-    days_left = max(1, math.ceil((exam_date - now).total_seconds() / 86_400.0))
+    days_left = days_until(exam_date, now)
     plan = ExamPlan(
         exam_date=exam_date.date().isoformat(),
         days_left=days_left,
@@ -291,42 +300,44 @@ def plan_exam(
         return plan
 
     new_cards = [c for c in cards if c.is_new]
-    learn_window = max(1, int(days_left * 0.6))
-    per_day_new = math.ceil(len(new_cards) / learn_window) if new_cards else 0
+    if new_per_day is None:
+        learn_window = max(1, int(days_left * 0.6))
+        new_per_day = math.ceil(len(new_cards) / learn_window) if new_cards else 0
 
-    # card_id -> (state, last_review_day_offset)
+    # card_id -> (state, last_review_day_offset, due_day_offset)
     sim: Dict[str, tuple] = {}
     for c in cards:
         if not c.is_new:
-            sim[c.card_id] = (c.state(), -c.elapsed_days(now))
+            due_off = 0.0 if c.due is None else (c.due - now).total_seconds() / 86_400.0
+            sim[c.card_id] = (c.state(), -c.elapsed_days(now), due_off)
 
-    no_plan = [
-        fsrs.retrievability(days_left - st[1], st[0].stability) for st in sim.values()
-    ]
+    no_plan = [fsrs.retrievability(days_left - st[1], st[0].stability) for st in sim.values()]
     plan.projected_retention_no_plan = round(sum(no_plan) / len(cards), 4)
 
+    final_window = max(1, min(3, days_left // 4))
     new_iter = iter(new_cards)
     for day in range(days_left):
         reviews = 0
         learned_today = 0
-        for cid, (state, last) in list(sim.items()):
-            elapsed = day - last
-            r_now = fsrs.retrievability(elapsed, state.stability)
-            r_exam = fsrs.retrievability(days_left - last, state.stability)
-            due = r_now <= fsrs.desired_retention
-            if not due and r_exam < target:
-                after = fsrs.next_state(state, elapsed, Rating.GOOD)
-                due = fsrs.retrievability(days_left - day, after.stability) >= target or (
-                    days_left - day <= 1
-                )
-            if due and elapsed >= 1.0:
-                sim[cid] = (fsrs.next_state(state, elapsed, Rating.GOOD), day)
+        for cid, (state, last, due_off) in list(sim.items()):
+            elapsed = max(0.0, day - last)
+            # Day 0 mirrors the live queue (due now); later days take anything due that day.
+            due = due_off <= 0 if day == 0 else due_off < day + 1
+            if not due and days_left - day <= final_window and elapsed >= 1.0:
+                # Just-in-time: a card that would sit below target on exam day
+                # gets one last review in the final days, as late as possible.
+                due = fsrs.retrievability(days_left - last, state.stability) < target
+            if due:
+                ns = fsrs.next_state(state, elapsed, Rating.GOOD)
+                sim[cid] = (ns, day, day + fsrs.next_interval(ns.stability))
                 reviews += 1
-        for _ in range(per_day_new):
+        quota = new_per_day if (day > 0 or new_today is None) else min(new_per_day, new_today)
+        for _ in range(max(0, quota)):
             card = next(new_iter, None)
             if card is None:
                 break
-            sim[card.card_id] = (fsrs.next_state(None, 0.0, Rating.GOOD), day)
+            ns = fsrs.next_state(None, 0.0, Rating.GOOD)
+            sim[card.card_id] = (ns, day, day + fsrs.next_interval(ns.stability))
             learned_today += 1
         plan.daily.append(
             {
@@ -338,7 +349,7 @@ def plan_exam(
             }
         )
 
-    final = [fsrs.retrievability(days_left - last, st.stability) for st, last in sim.values()]
+    final = [fsrs.retrievability(days_left - last, st.stability) for st, last, _ in sim.values()]
     final += [0.0] * (len(cards) - len(final))
     plan.projected_retention = round(sum(final) / len(cards), 4)
     plan.cards_below_target = sum(1 for r in final if r < target)

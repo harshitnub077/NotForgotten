@@ -46,6 +46,7 @@ export const STATUS: Record<StatusKey, { word: string; meaning: string }> = {
 
 export function statusOf(r: number | null | undefined): StatusKey {
   if (r === null || r === undefined) return 'checkin';
+  r = Math.round(r * 100) / 100; // classify what the board prints
   if (r >= 0.9) return 'ontime';
   if (r >= 0.8) return 'boarding';
   if (r >= 0.65) return 'final';

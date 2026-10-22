@@ -72,6 +72,19 @@ class TestForecastAndExam:
         assert plan.projected_retention >= 0.85
         assert sum(d["new"] for d in plan.daily) == 20
 
+    def test_countdown_is_calendar_days(self):
+        exam = datetime(2026, 11, 12, 9, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 22, 18, tzinfo=timezone.utc)
+        assert plan_exam(fsrs, [CardMemory("n")], exam, now=now).days_left == 21
+
+    def test_day_zero_matches_real_queue(self):
+        cards = [_learned(f"d{i}", 3.0, 10.0) for i in range(5)] + [_learned("later", 60.0, 1.0)]
+        cards += [CardMemory(f"n{i}") for i in range(30)]
+        plan = plan_exam(fsrs, cards, NOW + timedelta(days=20), now=NOW, new_per_day=20, new_today=12)
+        assert plan.daily[0]["reviews"] == 5
+        assert plan.daily[0]["new"] == 12
+        assert plan.daily[1]["new"] == 18
+
     def test_exam_plan_empty(self):
         plan = plan_exam(fsrs, [], NOW + timedelta(days=5), now=NOW)
         assert plan.total_cards == 0

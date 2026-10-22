@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, Trash2 } from 'lucide-react';
 import { api, type ExamPlan } from '../api';
-import { Btn, ErrorBox, Flap, SignBand, Skeleton, fmtMinutes, pct, shortDate, useLoad, useToast } from '../ui';
+import { Btn, ErrorBox, Flap, SignBand, Skeleton, fmtMinutes, pct, useLoad, useToast } from '../ui';
 import { Columns } from '../viz';
 
 function BoardingPass({ plan, onDelete }: { plan: ExamPlan; onDelete: () => void }) {
@@ -22,16 +22,21 @@ function BoardingPass({ plan, onDelete }: { plan: ExamPlan; onDelete: () => void
         <div className="pass-grid">
           <div>
             <span className="pass-k">Date</span>
-            <b>{shortDate(plan.exam_date)}</b>
+            <b>{new Date(plan.exam_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</b>
           </div>
           <div>
-            <span className="pass-k">Target recall</span>
+            <span className="pass-k">Target</span>
             <b>{pct(plan.target)}</b>
           </div>
           <div>
             <span className="pass-k">Cards</span>
             <b>
-              {plan.total_cards} <span className="small">({plan.new_cards} new)</span>
+              {plan.total_cards}
+            </b>
+          </div>
+          <div>
+            <span className="pass-k">Still new</span>
+            <b>{plan.new_cards}
             </b>
           </div>
           <div>

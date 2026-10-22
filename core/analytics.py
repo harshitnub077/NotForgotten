@@ -12,7 +12,7 @@ from core.util import jloads, parse_dt, utcnow
 from knowledge_graph.propagation import effective_retention, weakest_foundations
 from memory.calibration import calibration_report
 from memory.fsrs import FSRS
-from memory.planner import build_queue, forecast
+from memory.planner import build_queue, days_until, forecast
 from memory.schema import get_conn, init_db
 
 
@@ -71,6 +71,14 @@ def streak_info(tz_offset_min: int = 0, now: Optional[datetime] = None) -> Dict[
     return {"current": current, "longest": longest, "reviewed_today": today in days}
 
 
+def _new_cards_today() -> int:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE stability_before IS NULL AND reviewed_at >= ?",
+            ((utcnow() - timedelta(hours=24)).isoformat(),),
+        ).fetchone()[0]
+
+
 def _avg_seconds() -> Dict[str, float]:
     with get_conn() as conn:
         row = conn.execute(
@@ -98,11 +106,8 @@ def today(tz_offset_min: int = 0) -> Dict[str, Any]:
     mems = [to_memory(r) for r in rows]
     secs = _avg_seconds()
 
+    new_today = _new_cards_today()
     with get_conn() as conn:
-        new_today = conn.execute(
-            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE stability_before IS NULL AND reviewed_at >= ?",
-            ((now - timedelta(hours=24)).isoformat(),),
-        ).fetchone()[0]
         reviewed_today = conn.execute(
             "SELECT COUNT(*) FROM reviews WHERE reviewed_at >= ?",
             ((now - timedelta(hours=24)).isoformat(),),
@@ -378,7 +383,7 @@ def upcoming_exams() -> List[Dict[str, Any]]:
                 "exam_date": r["exam_date"],
                 "target": r["target"],
                 "document_ids": jloads(r["document_ids"], []),
-                "days_left": max(0, math.ceil((when - now).total_seconds() / 86_400.0)),
+                "days_left": days_until(when, now),
             }
         )
     return out
@@ -404,7 +409,17 @@ def exam_plan(exam_id: str) -> Optional[Dict[str, Any]]:
     mems = [to_memory(r) for r in exam_cards(doc_ids)]
     when = parse_dt(row["exam_date"])
     assert when is not None
-    plan = plan_exam(fsrs, mems, when, target=row["target"], review_seconds=secs["review"], new_seconds=secs["new"])
+    limit = int(settings.get("daily_new_limit"))
+    plan = plan_exam(
+        fsrs,
+        mems,
+        when,
+        target=row["target"],
+        review_seconds=secs["review"],
+        new_seconds=secs["new"],
+        new_per_day=limit,
+        new_today=max(0, limit - _new_cards_today()),
+    )
 
     now = utcnow()
     at_exam = [

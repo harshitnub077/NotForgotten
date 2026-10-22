@@ -273,7 +273,6 @@ export default function Review() {
                 <Kind.icon size={18} />
               </Picto>
               <span style={{ fontWeight: 700 }}>{Kind.label}</span>
-              <span className="muted">·</span>
               <Link to={`/concept/${card.concept_id}`} className="muted" style={{ fontWeight: 500 }}>
                 {card.concept_name}
               </Link>
