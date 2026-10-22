@@ -24,6 +24,7 @@ import numpy as np
 from nlp.text import keyphrases, sentences, title_case
 
 POSITION_WEIGHT = 0.6
+SECTION_WEIGHT = 1.2
 PREREQ_THRESHOLD = 0.35
 SEQUENTIAL_THRESHOLD = 0.25
 RELATED_THRESHOLD = 0.5
@@ -41,18 +42,28 @@ class ConceptDraft:
 
 
 def _candidate_ks(n: int, max_concepts: int) -> List[int]:
-    lo = max(2, math.ceil(n / 14))
-    hi = min(max_concepts, max(2, n // 3))
+    # Granularity prior: a concept is roughly 1.5–3.5 passages (~150–600 words),
+    # small enough to test, big enough to be an idea. Silhouette picks within it.
+    lo = min(max(2, math.ceil(n / 3.5)), max_concepts)
+    hi = min(max_concepts, max(lo, math.ceil(n / 1.5)), n - 1)
     if hi <= lo:
-        return [min(lo, n)]
+        return [max(1, min(lo, n - 1))]
     step = max(1, (hi - lo) // 10)
     return list(range(lo, hi + 1, step))
 
 
-def cluster_chunks(embeddings: np.ndarray, max_concepts: int = 40) -> List[int]:
-    """Return a concept label per chunk (labels ordered by first appearance)."""
+def cluster_chunks(
+    embeddings: np.ndarray,
+    max_concepts: int = 60,
+    sections: Optional[Sequence[int]] = None,
+) -> List[int]:
+    """
+    Return a concept label per chunk (labels ordered by first appearance).
+    *sections* (page or heading index per chunk) pulls passages from the same
+    section together, since authors usually give one idea one section.
+    """
     n = len(embeddings)
-    if n <= 3:
+    if n <= 2:
         return [0] * n
 
     from sklearn.cluster import AgglomerativeClustering
@@ -61,6 +72,10 @@ def cluster_chunks(embeddings: np.ndarray, max_concepts: int = 40) -> List[int]:
     emb = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True).clip(1e-9)
     pos = (np.arange(n) / max(n - 1, 1))[:, None] * POSITION_WEIGHT
     features = np.hstack([emb, pos])
+    if sections is not None and 1 < len(set(sections)) < n:
+        sec = np.asarray(sections, dtype=np.float32)
+        span = max(float(sec.max() - sec.min()), 1.0)
+        features = np.hstack([features, ((sec - sec.min()) / span)[:, None] * SECTION_WEIGHT])
 
     best_labels: Optional[np.ndarray] = None
     best_score = -2.0
@@ -81,12 +96,44 @@ def cluster_chunks(embeddings: np.ndarray, max_concepts: int = 40) -> List[int]:
     return [order[int(lab)] for lab in best_labels]
 
 
+MAX_SECTION_CHUNKS = 6
+
+
+def section_labels(embeddings: np.ndarray, sections: Sequence[int]) -> List[int]:
+    """
+    Author structure first: each headed section is a concept, and only an
+    oversized section is split further by clustering its own passages.
+    """
+    labels: List[int] = [0] * len(sections)
+    next_label = 0
+    order: List[int] = []
+    for s in sections:
+        if s not in order:
+            order.append(s)
+    for s in order:
+        idxs = [i for i, sec in enumerate(sections) if sec == s]
+        if len(idxs) > MAX_SECTION_CHUNKS:
+            sub = cluster_chunks(embeddings[idxs], max_concepts=max(2, len(idxs) // 3))
+        else:
+            sub = [0] * len(idxs)
+        for i, lab in zip(idxs, sub):
+            labels[i] = next_label + lab
+        next_label += max(sub) + 1
+    return labels
+
+
 def discover_concepts(
     texts: Sequence[str],
     embeddings: np.ndarray,
-    max_concepts: int = 40,
+    max_concepts: int = 60,
+    sections: Optional[Sequence[int]] = None,
+    headed: bool = False,
 ) -> List[ConceptDraft]:
-    labels = cluster_chunks(np.asarray(embeddings, dtype=np.float32), max_concepts)
+    emb = np.asarray(embeddings, dtype=np.float32)
+    if headed and sections is not None and 2 <= len(set(sections)) <= max_concepts:
+        labels = section_labels(emb, sections)
+    else:
+        labels = cluster_chunks(emb, max_concepts, sections)
     groups: Dict[int, List[int]] = {}
     for idx, lab in enumerate(labels):
         groups.setdefault(lab, []).append(idx)

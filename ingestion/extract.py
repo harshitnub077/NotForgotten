@@ -20,6 +20,7 @@ _SECTION_CHARS = 3_000
 class Extracted:
     title: str
     pages: List[Tuple[int, str]]   # (page number, text)
+    headed: bool = False           # pages are author-headed sections, not layout pages
 
 
 def extract_pdf(path: str, fallback_title: str) -> Extracted:
@@ -53,7 +54,15 @@ def split_sections(text: str) -> List[Tuple[int, str]]:
         buf += block + "\n\n"
     if buf.strip():
         pages.append((len(pages), buf.strip()))
-    return pages
+    return [(i, _strip_markdown(t)) for i, t in pages if _strip_markdown(t)]
+
+
+def _strip_markdown(text: str) -> str:
+    text = re.sub(r"^#{1,6}\s*(.+?)\s*#*$", r"\1.", text, flags=re.M)   # headings → sentences
+    text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)                   # links → text
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.M)
+    return text.strip()
 
 
 def extract_text(text: str, title: str) -> Extracted:
@@ -61,7 +70,8 @@ def extract_text(text: str, title: str) -> Extracted:
     if not pages:
         raise ValueError("The text is empty.")
     heading = re.match(r"^#\s+(.+)$", text.strip(), re.M)
-    return Extracted(heading.group(1).strip() if heading else title, pages)
+    headed = len(re.findall(r"^#{1,3}\s+\S", text, re.M)) >= 2
+    return Extracted(heading.group(1).strip() if heading else title, pages, headed)
 
 
 class _HTMLText(HTMLParser):
@@ -143,4 +153,4 @@ def extract_url(url: str) -> Extracted:
     extracted = extract_text(body, title)
     if sum(len(t) for _, t in extracted.pages) < 300:
         raise ValueError("Couldn't find enough readable text on that page.")
-    return Extracted(title[:160], extracted.pages)
+    return Extracted(title[:160], extracted.pages, extracted.headed)

@@ -148,7 +148,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
     vectors = embed_texts(texts)
 
     _job_update(job_id, "concepts", 0.38, "Discovering concepts with clustering…")
-    drafts = discover_concepts(texts, vectors)
+    drafts = discover_concepts(texts, vectors, sections=[c.page for c in chunks], headed=extracted.headed)
     if use_llm and refine_with_llm(drafts, texts):
         _job_update(job_id, "naming", 0.45, f"Named {len(drafts)} concepts with AI.")
     else:
@@ -203,7 +203,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
         sims = sorted(d.chunk_indices, key=lambda i: -float(np.dot(vectors[i], d.centroid)))
         central = sorted(sims[:4])
         excerpts = [texts[i] for i in central]
-        n = max(2, min(6, 2 + len(d.chunk_indices) // 2))
+        n = max(3, min(7, 2 + len(d.chunk_indices) // 2))
         cards = generate_cards(d.name, d.summary, d.keywords, excerpts, n_cards=n, use_llm=use_llm)
         done[0] += 1
         _job_update(

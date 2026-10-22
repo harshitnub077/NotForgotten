@@ -43,21 +43,39 @@ def _blobs(n_per=8, dim=16, seed=0):
 
 
 class TestConcepts:
-    def test_clusters_recover_contiguous_topics(self):
+    def test_reading_order_labels(self):
+        assert cluster_chunks(_blobs())[0] == 0
+
+    def test_sections_pull_passages_together(self):
+        labels = cluster_chunks(_blobs(), sections=[i // 8 for i in range(24)])
+        for topic in range(3):
+            block = set(labels[topic * 8 : (topic + 1) * 8])
+            rest = set(labels[: topic * 8] + labels[(topic + 1) * 8 :])
+            assert block.isdisjoint(rest)
+
+    def test_headed_sections_become_concepts(self):
+        from nlp.concepts import section_labels
+
+        sections = [0, 0, 1, 2, 2, 2] + [3] * 9
+        rng = np.random.default_rng(1)
+        emb = rng.normal(size=(15, 8))
+        labels = section_labels(emb, sections)
+        assert labels[:6] == [0, 0, 1, 2, 2, 2]
+        assert len(set(labels[6:])) >= 2  # the oversized section was split
+
+    def test_granularity_prior(self):
         labels = cluster_chunks(_blobs())
-        assert labels[:8] == [0] * 8
-        assert len(set(labels)) == 3
-        assert labels[0] == 0  # reading order
+        assert 3 <= len(set(labels)) <= 16
 
     def test_tiny_input_single_concept(self):
         assert cluster_chunks(np.ones((2, 4))) == [0, 0]
 
     def test_discover_names_and_summaries(self):
         texts = [PHOTO] * 8 + [MITO] * 8 + [PHOTO + " " + MITO] * 8
-        drafts = discover_concepts(texts, _blobs())
-        assert len(drafts) == 3
+        drafts = discover_concepts(texts, _blobs(), sections=[i // 8 for i in range(24)])
+        assert len(drafts) >= 3
         assert all(d.name and d.summary for d in drafts)
-        assert len({d.name for d in drafts}) == 3
+        assert len({d.name for d in drafts}) == len(drafts)
 
     def test_edges_direction_and_kinds(self):
         a = np.array([1.0, 0.1, 0])

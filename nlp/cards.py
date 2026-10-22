@@ -26,6 +26,13 @@ _DEF_RE = re.compile(
 )
 
 
+_BAD_TERM_START = frozenset(
+    "when if only because as although while since after before this that it there these those each "
+    "every most some many such one two first second however thus so but and or what which who how".split()
+)
+_PASSIVE = re.compile(r"^(made|known|used|found|called|done|seen|given|taken|built|shown|thought|considered|\w+ed)\b", re.I)
+
+
 @dataclass
 class CardDraft:
     kind: str
@@ -126,7 +133,11 @@ def generate_heuristic(
         if not m:
             continue
         term = m.group("term").strip()
-        if len(term.split()) > 6 or term.lower() in STOPWORDS:
+        body = m.group("body").strip()
+        first = term.split()[0].lower()
+        if len(term.split()) > 6 or term.lower() in STOPWORDS or first in _BAD_TERM_START:
+            continue
+        if _PASSIVE.match(body) or body.split()[0].lower() in ("not", "also", "often", "usually"):
             continue
         verb = m.group("verb")
         question = f"What {'are' if verb == 'are' else 'is'} {term[0].lower() + term[1:]}?"

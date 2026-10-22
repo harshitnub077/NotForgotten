@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _DEFAULT_MODELS = {
-    "groq": "llama-3.3-70b-versatile",
+    "groq": "openai/gpt-oss-120b",
     "openai": "gpt-4o-mini",
     "anthropic": "claude-sonnet-5-5",
 }
@@ -120,6 +120,8 @@ class LLMClient:
             try:
                 return self._complete_once(system, messages, max_tokens, temperature)
             except Exception as exc:  # noqa: BLE001 — SDKs raise many types
+                if self._recover_model(exc):
+                    continue
                 rate_limited = "429" in str(exc) or "rate" in str(exc).lower()
                 if attempt < retries and rate_limited:
                     time.sleep(delay)
@@ -145,10 +147,26 @@ class LLMClient:
         resp = sdk.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": system}, *messages],
-            max_tokens=max_tokens,
             temperature=temperature,
+            **self._extra(max_tokens),
         )
         return resp.choices[0].message.content or ""
+
+    def _extra(self, max_tokens: int) -> Dict[str, Any]:
+        """Reasoning models spend tokens thinking; keep that cheap and budgeted."""
+        if "gpt-oss" in self.model:
+            return {"max_tokens": max_tokens + 1500, "reasoning_effort": "low"}
+        return {"max_tokens": max_tokens}
+
+    def _recover_model(self, exc: Exception) -> bool:
+        """Switch to the provider default once if the configured model was retired."""
+        default = _DEFAULT_MODELS.get(self.provider or "")
+        if "model_not_found" in str(exc) or "does not exist" in str(exc):
+            if default and self.model != default:
+                print(f"[LLM] Model {self.model!r} unavailable; falling back to {default!r}")
+                self.model = default
+                return True
+        return False
 
     def stream(
         self,
@@ -175,14 +193,15 @@ class LLMClient:
             chunks = sdk.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "system", "content": system}, *messages],
-                max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True,
+                **self._extra(max_tokens),
             )
             for chunk in chunks:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         except Exception as exc:  # noqa: BLE001
+            self._recover_model(exc)
             self._mark_failed(exc)
             raise LLMUnavailable(self.last_error) from exc
 
