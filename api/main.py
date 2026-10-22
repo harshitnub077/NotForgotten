@@ -1,101 +1,64 @@
 """FastAPI application entry point."""
 from __future__ import annotations
 
+import os
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from api.routes.dashboard import router as dashboard_router
-from api.routes.ingestion import router as ingestion_router
-from api.routes.session import router as session_router
-from api.routes.chat import router as chat_router
-from api.routes.graph import router as graph_router
-from api.routes.concepts import router as concepts_router
+from api.routes import cards, concepts, documents, exams, insights, review, system, tutor
 from memory.schema import init_db
-
-
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Bootstrap DB and warm up embedder on startup."""
-    print("[Startup] Initialising SQLite schema …")
     init_db()
 
-    print("[Startup] Pre-loading embedding model …")
-    from ingestion.embedder import get_embedder
-    get_embedder()
+    def warm() -> None:
+        from ingestion.embedder import get_embedder
 
-    print("[Startup] Ready. 🧠")
+        get_embedder()
+
+    # Load the embedding model in the background so the API answers immediately.
+    threading.Thread(target=warm, daemon=True).start()
     yield
-    print("[Shutdown] NotForgotten shutting down.")
-
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
 
 
 app = FastAPI(
     title="NotForgotten",
     description=(
-        "AI-powered spaced repetition learning system. "
-        "Combines semantic search with the Ebbinghaus forgetting curve "
-        "to surface what you're about to forget, before you forget it."
+        "Memory-aware learning engine: FSRS-6 scheduling, concept knowledge graphs, "
+        "typed-recall grading and an AI tutor that knows what you're forgetting."
     ),
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
 )
 
-# CORS — allow all origins for local dev (tighten in production)
+_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+for module in (system, documents, concepts, cards, review, insights, tutor, exams):
+    app.include_router(module.router, prefix="/api")
 
-app.include_router(session_router)
-app.include_router(dashboard_router)
-app.include_router(ingestion_router)
-app.include_router(chat_router)
-app.include_router(graph_router)
-app.include_router(concepts_router)
+# Serve the built frontend (npm run build) from the same origin in production.
+_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
 
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-
-@app.get("/health", tags=["meta"])
-def health() -> dict:
-    return {"status": "ok", "service": "NotForgotten"}
-
-
-@app.get("/", tags=["meta"])
-def root() -> dict:
-    return {
-        "message": "NotForgotten API",
-        "docs": "/docs",
-        "endpoints": [
-            "POST /session/start",
-            "POST /session/query",
-            "POST /session/rate",
-            "POST /ingest",
-            "GET  /dashboard",
-            "POST /chat",
-            "GET  /graph",
-        ],
-    }
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str):
+        target = _DIST / path
+        if path and target.is_file() and _DIST in target.resolve().parents:
+            return FileResponse(target)
+        return FileResponse(_DIST / "index.html")

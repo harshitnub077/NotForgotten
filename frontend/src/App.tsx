@@ -1,184 +1,186 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink as RRNavLink, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  BrainCircuit, LayoutDashboard, MessageSquare,
-  RotateCcw, UploadCloud, Network, Zap,
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  CalendarClock,
+  Map as MapIcon,
+  MessageSquareText,
+  Moon,
+  Settings as SettingsIcon,
+  Sun,
+  SunMoon,
+  Repeat2,
 } from 'lucide-react';
+import { api, type Today as TodayData } from './api';
+import { Picto, Skeleton, ToastProvider, useTheme } from './ui';
 
-import Dashboard from './components/Dashboard';
-import TutorChat from './components/TutorChat';
-import ReviewPage from './components/ReviewPage';
-import IngestModule from './components/IngestModule';
-import KnowledgeGraph from './components/KnowledgeGraph';
+const Today = lazy(() => import('./pages/Today'));
+const Review = lazy(() => import('./pages/Review'));
+const Library = lazy(() => import('./pages/Library'));
+const DocumentPage = lazy(() => import('./pages/DocumentPage'));
+const ConceptPage = lazy(() => import('./pages/ConceptPage'));
+const Graph = lazy(() => import('./pages/Graph'));
+const Tutor = lazy(() => import('./pages/Tutor'));
+const Insights = lazy(() => import('./pages/Insights'));
+const Exams = lazy(() => import('./pages/Exams'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Landing = lazy(() => import('./pages/Landing'));
 
-/* ── Nav item config ─────────────────────────── */
 const NAV = [
-  { to: '/', icon: <LayoutDashboard size={17} />, label: 'Dashboard' },
-  { to: '/tutor', icon: <MessageSquare size={17} />, label: 'AI Tutor' },
-  { to: '/review', icon: <RotateCcw size={17} />, label: 'Review' },
-  { to: '/upload', icon: <UploadCloud size={17} />, label: 'Upload' },
-  { to: '/graph', icon: <Network size={17} />, label: 'Knowledge Graph' },
+  { to: '/', label: 'Today', hint: 'What to study next', icon: ArrowRight, short: 'Today' },
+  { to: '/review', label: 'Review', hint: 'Recall, graded', icon: Repeat2, short: 'Review', count: true },
+  { to: '/library', label: 'Library', hint: 'Sources & concepts', icon: BookOpen, short: 'Library' },
+  { to: '/map', label: 'Knowledge map', hint: 'See it fade, in time', icon: MapIcon, short: 'Map' },
+  { to: '/tutor', label: 'Tutor', hint: 'Ask, get quizzed', icon: MessageSquareText, short: 'Tutor' },
+  { to: '/insights', label: 'Insights', hint: 'Your memory, measured', icon: BarChart3, short: 'Insights' },
+  { to: '/exams', label: 'Exams', hint: 'Plan back from the date', icon: CalendarClock, short: 'Exams' },
 ];
+const TABS = ['/', '/review', '/library', '/tutor', '/exams'];
 
-/* ── Sidebar ─────────────────────────────────── */
-const Sidebar = () => {
+function useQueueCount() {
   const location = useLocation();
+  const [today, setToday] = useState<TodayData | null>(null);
+  useEffect(() => {
+    api.today().then(setToday).catch(() => undefined);
+  }, [location.pathname]);
+  return today ? today.due + today.new : null;
+}
+
+function Rail() {
+  const count = useQueueCount();
+  const [theme, setTheme] = useTheme();
+  const [llm, setLlm] = useState<string>('Checking AI…');
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => setLlm(h.llm.available ? `AI: ${h.llm.provider}` : 'AI offline · local mode'))
+      .catch(() => setLlm('Server unreachable'));
+  }, []);
+  const nextTheme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system';
+  const ThemeIcon = theme === 'system' ? SunMoon : theme === 'light' ? Sun : Moon;
 
   return (
-    <aside style={{
-      width: 228,
-      flexShrink: 0,
-      background: 'var(--bg-elevated)',
-      borderRight: '1px solid var(--border)',
-      display: 'flex', flexDirection: 'column',
-      position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 50,
-    }}>
-      {/* Logo */}
-      <div style={{
-        padding: 'var(--space-5) var(--space-5)',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: 'var(--r-lg)',
-          background: 'linear-gradient(135deg, var(--indigo-500), var(--violet-500))',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 0 16px var(--accent-glow)',
-          flexShrink: 0,
-        }}>
-          <BrainCircuit size={17} color="white" />
-        </div>
-        <div>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.95rem', lineHeight: 1.1 }}>
-            ForgetLess
-          </div>
-          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-            AI Memory Engine
-          </div>
-        </div>
-      </div>
-
-      {/* Nav links */}
-      <nav style={{ flex: 1, padding: 'var(--space-4) var(--space-3)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <div style={{ fontSize: '0.67rem', fontWeight: 700, color: 'var(--text-dimmed)', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '8px 10px 6px' }}>
-          Navigation
-        </div>
-        {NAV.map(item => {
-          const isActive = location.pathname === item.to;
-          return (
-            <RRNavLink
-              key={item.to}
-              to={item.to}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
-                padding: '9px 12px',
-                borderRadius: 'var(--r-lg)',
-                background: isActive ? 'var(--indigo-900)' : 'transparent',
-                color: isActive ? 'var(--indigo-300)' : 'var(--text-secondary)',
-                border: isActive ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
-                fontWeight: isActive ? 600 : 400,
-                fontSize: '0.875rem',
-                transition: 'all var(--ease-fast)',
-                textDecoration: 'none',
-              }}
-              onMouseEnter={e => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.background = 'var(--bg-glass)';
-                  (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
-                }
-              }}
-              onMouseLeave={e => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
-                  (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
-                }
-              }}
-            >
-              <span style={{ opacity: isActive ? 1 : 0.7 }}>{item.icon}</span>
-              {item.label}
-              {item.to === '/review' && (
-                <span style={{
-                  marginLeft: 'auto', background: 'var(--danger)', color: 'white',
-                  fontSize: '0.65rem', fontWeight: 700,
-                  padding: '1px 6px', borderRadius: 'var(--r-full)',
-                }}>!</span>
-              )}
-            </RRNavLink>
-          );
-        })}
-      </nav>
-
-      {/* Bottom status */}
-      <div style={{
-        padding: 'var(--space-4)',
-        borderTop: '1px solid var(--border)',
-      }}>
-        <div style={{
-          padding: 'var(--space-3)',
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--r-lg)',
-          border: '1px solid var(--border)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)' }} />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Memory Engine
+    <aside className="rail" aria-label="Main navigation">
+      <NavLink to="/welcome" className="brand" aria-label="NotForgotten — about">
+        <Picto>
+          <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden>
+            <path d="M10 32h34M32 18l14 14-14 14" fill="none" stroke="#ffcc00" strokeWidth="8" strokeLinecap="square" />
+          </svg>
+        </Picto>
+        <span>
+          <span className="brand-name">NotForgotten</span>
+          <span className="brand-sub" style={{ display: 'block' }}>
+            Memory, on schedule
+          </span>
+        </span>
+      </NavLink>
+      <nav>
+        {NAV.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `rail-link${isActive ? ' active' : ''}`}>
+            <Picto>
+              <item.icon size={22} strokeWidth={2.4} />
+            </Picto>
+            <span>
+              <span className="rail-label" style={{ display: 'block' }}>
+                {item.label}
+              </span>
+              <span className="rail-hint" style={{ display: 'block' }}>
+                {item.hint}
+              </span>
             </span>
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            SM-2 algorithm active
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Hybrid retrieval enabled
-          </div>
+            {item.count && count ? <span className="rail-count">{count}</span> : <span />}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="rail-foot">
+        <NavLink to="/settings" className="rail-foot-row" style={{ fontWeight: 700, textDecoration: 'none', color: 'inherit' }}>
+          <SettingsIcon size={18} /> Settings
+        </NavLink>
+        <button
+          className="rail-foot-row link-btn"
+          style={{ textDecoration: 'none', color: 'inherit' }}
+          onClick={() => setTheme(nextTheme)}
+          aria-label={`Theme: ${theme}. Switch to ${nextTheme}`}
+        >
+          <ThemeIcon size={18} /> Theme: {theme}
+        </button>
+        <div className="rail-foot-row">
+          <span className={`dot${llm.startsWith('AI:') ? ' live' : ''}`} /> {llm}
         </div>
       </div>
     </aside>
   );
-};
+}
 
-/* ── Page Wrapper ────────────────────────────── */
-const pageVariants = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
-  exit: { opacity: 0, y: -6, transition: { duration: 0.15 } },
-};
-
-function AppInner() {
-  const location = useLocation();
-
+function TabBar() {
+  const count = useQueueCount();
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar />
-      <main style={{ flex: 1, marginLeft: 228, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={pageVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            style={{ flex: 1 }}
-          >
-            <Routes location={location}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/tutor" element={<TutorChat />} />
-              <Route path="/review" element={<ReviewPage />} />
-              <Route path="/upload" element={<IngestModule />} />
-              <Route path="/graph" element={<KnowledgeGraph />} />
-            </Routes>
-          </motion.div>
-        </AnimatePresence>
+    <nav className="tabbar" aria-label="Main navigation">
+      {NAV.filter((n) => TABS.includes(n.to)).map((item) => (
+        <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
+          <item.icon size={22} strokeWidth={2.4} />
+          {item.short}
+          {item.count && count ? <span className="visually-hidden">{count} cards</span> : null}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
+function Shell() {
+  const location = useLocation();
+  const bare = location.pathname === '/welcome';
+  const focus = location.pathname === '/review'; // review sessions hide the phone tab bar
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  const routes = (
+    <Suspense
+      fallback={
+        <div className="page">
+          <Skeleton h={160} />
+          <Skeleton h={320} />
+        </div>
+      }
+    >
+      <Routes>
+        <Route path="/" element={<Today />} />
+        <Route path="/review" element={<Review />} />
+        <Route path="/library" element={<Library />} />
+        <Route path="/library/:id" element={<DocumentPage />} />
+        <Route path="/concept/:id" element={<ConceptPage />} />
+        <Route path="/map" element={<Graph />} />
+        <Route path="/tutor" element={<Tutor />} />
+        <Route path="/insights" element={<Insights />} />
+        <Route path="/exams" element={<Exams />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/welcome" element={<Landing />} />
+        <Route path="*" element={<Today />} />
+      </Routes>
+    </Suspense>
+  );
+
+  if (bare) return routes;
+  return (
+    <div className="shell">
+      <Rail />
+      <main className={`main${focus ? ' focus' : ''}`} id="main">
+        {routes}
       </main>
+      {!focus && <TabBar />}
     </div>
   );
 }
 
 export default function App() {
   return (
-    <Router>
-      <AppInner />
-    </Router>
+    <BrowserRouter>
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
+    </BrowserRouter>
   );
 }

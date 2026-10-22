@@ -1,4 +1,4 @@
-"""SQLite schema bootstrap for memory tables."""
+"""SQLite schema and connection helper."""
 from __future__ import annotations
 
 import os
@@ -17,28 +17,129 @@ _DB_PATH = os.getenv("DB_PATH", "./data/memory.db")
 # DDL
 # ---------------------------------------------------------------------------
 _DDL = """
-CREATE TABLE IF NOT EXISTS concept_memory (
-    concept_id       TEXT PRIMARY KEY,
-    easiness_factor  REAL    NOT NULL DEFAULT 2.5,
-    interval_days    INTEGER NOT NULL DEFAULT 1,
-    repetitions      INTEGER NOT NULL DEFAULT 0,
-    last_review      TEXT,                        -- ISO-8601 datetime string
-    next_review      TEXT,                        -- ISO-8601 datetime string
-    retention_prob   REAL    NOT NULL DEFAULT 1.0
+CREATE TABLE IF NOT EXISTS documents (
+    id             TEXT PRIMARY KEY,
+    title          TEXT NOT NULL,
+    filename       TEXT,
+    kind           TEXT NOT NULL,                 -- pdf | text | markdown | url
+    source_url     TEXT,
+    size_bytes     INTEGER NOT NULL DEFAULT 0,
+    chunk_count    INTEGER NOT NULL DEFAULT 0,
+    concept_count  INTEGER NOT NULL DEFAULT 0,
+    card_count     INTEGER NOT NULL DEFAULT 0,
+    status         TEXT NOT NULL DEFAULT 'processing',
+    error          TEXT,
+    is_demo        INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS session_log (
-    session_id  TEXT    NOT NULL,
-    concept_id  TEXT    NOT NULL,
-    user_rating INTEGER NOT NULL,                 -- 0-5 (SM-2 scale)
-    timestamp   TEXT    NOT NULL                  -- ISO-8601
+CREATE TABLE IF NOT EXISTS chunks (
+    id           TEXT PRIMARY KEY,
+    document_id  TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    idx          INTEGER NOT NULL,
+    page         INTEGER NOT NULL DEFAULT 0,
+    text         TEXT NOT NULL,
+    concept_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks (document_id, idx);
+CREATE INDEX IF NOT EXISTS idx_chunks_concept ON chunks (concept_id);
+
+CREATE TABLE IF NOT EXISTS concepts (
+    id           TEXT PRIMARY KEY,
+    document_id  TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    summary      TEXT NOT NULL DEFAULT '',
+    keywords     TEXT NOT NULL DEFAULT '[]',      -- JSON array
+    centroid     TEXT NOT NULL DEFAULT '[]',      -- JSON array of floats
+    position     REAL NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_concepts_doc ON concepts (document_id);
+
+CREATE TABLE IF NOT EXISTS concept_links (
+    source  TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    target  TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    weight  REAL NOT NULL,
+    kind    TEXT NOT NULL,                        -- prerequisite | related
+    PRIMARY KEY (source, target)
 );
 
-CREATE INDEX IF NOT EXISTS idx_session_log_concept
-    ON session_log (concept_id);
+CREATE TABLE IF NOT EXISTS cards (
+    id               TEXT PRIMARY KEY,
+    concept_id       TEXT REFERENCES concepts(id) ON DELETE CASCADE,
+    document_id      TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    kind             TEXT NOT NULL,               -- qa | cloze | explain
+    prompt           TEXT NOT NULL,
+    answer           TEXT NOT NULL,
+    explanation      TEXT NOT NULL DEFAULT '',
+    source_chunk_id  TEXT,
+    origin           TEXT NOT NULL DEFAULT 'generated',
+    stability        REAL,
+    difficulty       REAL,
+    due              TEXT,
+    last_review      TEXT,
+    reps             INTEGER NOT NULL DEFAULT 0,
+    lapses           INTEGER NOT NULL DEFAULT 0,
+    suspended        INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cards_concept ON cards (concept_id);
+CREATE INDEX IF NOT EXISTS idx_cards_due ON cards (due);
 
-CREATE INDEX IF NOT EXISTS idx_concept_memory_next_review
-    ON concept_memory (next_review);
+CREATE TABLE IF NOT EXISTS reviews (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id          TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    rating           INTEGER NOT NULL,            -- 1 Again | 2 Hard | 3 Good | 4 Easy
+    score            REAL,
+    confidence       REAL,
+    response         TEXT,
+    elapsed_days     REAL NOT NULL DEFAULT 0,
+    scheduled_days   REAL NOT NULL DEFAULT 0,
+    retrievability   REAL,
+    stability_before REAL,
+    stability_after  REAL NOT NULL,
+    difficulty_after REAL NOT NULL,
+    duration_ms      INTEGER,
+    session_id       TEXT,
+    reviewed_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_card ON reviews (card_id, reviewed_at);
+CREATE INDEX IF NOT EXISTS idx_reviews_time ON reviews (reviewed_at);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id           TEXT PRIMARY KEY,
+    document_id  TEXT,
+    status       TEXT NOT NULL,                   -- running | done | failed
+    stage        TEXT NOT NULL,
+    progress     REAL NOT NULL DEFAULT 0,
+    message      TEXT NOT NULL DEFAULT '',
+    log          TEXT NOT NULL DEFAULT '[]',
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL                          -- JSON
+);
+
+CREATE TABLE IF NOT EXISTS feynman_attempts (
+    id           TEXT PRIMARY KEY,
+    concept_id   TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    explanation  TEXT NOT NULL,
+    score        REAL NOT NULL,
+    result       TEXT NOT NULL,                   -- JSON
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exams (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    exam_date     TEXT NOT NULL,
+    target        REAL NOT NULL DEFAULT 0.9,
+    document_ids  TEXT NOT NULL DEFAULT '[]',     -- JSON; empty = everything
+    created_at    TEXT NOT NULL
+);
 """
 
 # ---------------------------------------------------------------------------
@@ -54,8 +155,8 @@ def get_db_path() -> str:
 
 @contextmanager
 def get_conn() -> Generator[sqlite3.Connection, None, None]:
-    """Context-managed SQLite connection with WAL mode."""
-    conn = sqlite3.connect(get_db_path(), detect_types=sqlite3.PARSE_DECLTYPES)
+    """Context-managed SQLite connection with WAL mode and FK enforcement."""
+    conn = sqlite3.connect(get_db_path(), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
@@ -69,38 +170,19 @@ def get_conn() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Bootstrap
-# ---------------------------------------------------------------------------
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    """Apply any missing schema migrations idempotently."""
-    # Add source_file column to concept_memory if it doesn't exist
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(concept_memory)").fetchall()}
-    if "source_file" not in existing:
-        conn.execute("ALTER TABLE concept_memory ADD COLUMN source_file TEXT")
-        print("[DB] Migration applied: added source_file column to concept_memory")
-
-    # Create source_files table if it doesn't exist (safe — uses IF NOT EXISTS)
-    conn.executescript("""
-    CREATE TABLE IF NOT EXISTS source_files (
-        filename       TEXT PRIMARY KEY,
-        upload_date    TEXT NOT NULL,
-        size_bytes     INTEGER NOT NULL,
-        chunk_count    INTEGER NOT NULL,
-        concept_count  INTEGER NOT NULL
-    );
-    """)
+_initialised_for: set = set()
 
 
 def init_db() -> None:
-    """Create tables if they don't exist, then apply migrations."""
+    """Create tables if they don't exist (idempotent, cheap after first call)."""
+    path = get_db_path()
+    if path in _initialised_for and Path(path).exists():
+        return
     with get_conn() as conn:
         conn.executescript(_DDL)
-        _migrate(conn)
-    print(f"[DB] Initialized at {get_db_path()}")
+    _initialised_for.add(path)
 
 
 if __name__ == "__main__":
     init_db()
+    print(f"[DB] Initialised at {get_db_path()}")

@@ -1,65 +1,119 @@
-"""Concepts route: GET /concepts"""
+"""Concepts: list, detail, knowledge graph, Feynman mode, card generation."""
 from __future__ import annotations
-from typing import List, Optional
-from pydantic import BaseModel
-from fastapi import APIRouter
+
+from typing import List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from core import analytics, settings
+from core.util import iso, jdumps, jloads, new_id, utcnow
 from memory.schema import get_conn
-import datetime
 
 router = APIRouter(tags=["concepts"])
 
-class ConceptSchema(BaseModel):
-    concept_id: str
-    source_file: Optional[str]
-    retention_prob: float
-    urgency_score: float
-    interval_days: int
-    repetitions: int
-    last_review: Optional[str]
-    next_review: Optional[str]
-    status: str
 
-@router.get("/concepts", response_model=List[ConceptSchema])
-def get_concepts() -> List[ConceptSchema]:
-    """
-    Return all tracked concepts with their current memory status.
-    """
-    now = datetime.datetime.utcnow()
-    
+@router.get("/concepts")
+def list_concepts() -> List[dict]:
+    return analytics.concept_list()
+
+
+@router.get("/concepts/{concept_id}")
+def concept(concept_id: str) -> dict:
+    detail = analytics.concept_detail(concept_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    return detail
+
+
+@router.get("/graph")
+def knowledge_graph(days: float = 0.0) -> dict:
+    return analytics.graph(max(-365.0, min(days, 365.0)))
+
+
+def _concept_material(concept_id: str):
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM concept_memory").fetchall()
-    
-    concepts = []
-    for r in rows:
-        # Calculate urgency and status
-        retention = r["retention_prob"] if r["retention_prob"] is not None else 1.0
-        next_rev_str = r["next_review"]
-        
-        status = "strong"
-        if retention < 0.55:
-            status = "urgent"
-        elif next_rev_str:
-            try:
-                next_rev = datetime.datetime.fromisoformat(next_rev_str)
-                if next_rev <= now:
-                    status = "urgent"
-                elif (next_rev - now).days <= 2:
-                    status = "due_soon"
-            except (ValueError, TypeError):
-                pass
-        elif retention >= 0.9: # New concepts start at strong
-            status = "strong"
-        
-        concepts.append(ConceptSchema(
-            concept_id=r["concept_id"],
-            source_file=r["source_file"],
-            retention_prob=retention,
-            urgency_score=1.0 - retention,
-            interval_days=r["interval_days"],
-            repetitions=r["repetitions"],
-            last_review=r["last_review"],
-            next_review=r["next_review"],
-            status=status
-        ))
-        
-    return concepts
+        c = conn.execute("SELECT * FROM concepts WHERE id = ?", (concept_id,)).fetchone()
+        if c is None:
+            raise HTTPException(status_code=404, detail="Concept not found")
+        chunks = conn.execute(
+            "SELECT id, text FROM chunks WHERE concept_id = ? ORDER BY idx", (concept_id,)
+        ).fetchall()
+    return c, chunks
+
+
+class FeynmanIn(BaseModel):
+    explanation: str = Field(..., min_length=10, max_length=8000)
+
+
+@router.post("/concepts/{concept_id}/feynman")
+def feynman(concept_id: str, body: FeynmanIn) -> dict:
+    from ingestion.embedder import embed_texts
+    from nlp.grader import feynman_heuristic, feynman_with_llm
+
+    c, chunks = _concept_material(concept_id)
+    reference = c["summary"] + "\n" + "\n".join(ch["text"] for ch in chunks[:6])
+    result = None
+    if settings.get("use_llm"):
+        result = feynman_with_llm(c["name"], reference, body.explanation)
+    if result is None:
+        result = feynman_heuristic(jloads(c["keywords"], [])[:8], reference, body.explanation, embed_texts)
+    payload = result.__dict__
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO feynman_attempts (id, concept_id, explanation, score, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_id("fey"), concept_id, body.explanation, result.score, jdumps(payload), iso(utcnow())),
+        )
+    return payload
+
+
+class GenerateIn(BaseModel):
+    n: int = Field(default=3, ge=1, le=8)
+
+
+@router.post("/concepts/{concept_id}/generate")
+def generate_more(concept_id: str, body: GenerateIn) -> dict:
+    from nlp.cards import generate_cards
+
+    c, chunks = _concept_material(concept_id)
+    with get_conn() as conn:
+        existing = {r["prompt"] for r in conn.execute("SELECT prompt FROM cards WHERE concept_id = ?", (concept_id,))}
+    # Rotate through passages so new cards cover material the old ones didn't.
+    offset = len(existing) % max(len(chunks), 1)
+    window = (list(chunks[offset:]) + list(chunks[:offset]))[:4]
+    drafts = generate_cards(
+        c["name"],
+        c["summary"],
+        jloads(c["keywords"], []),
+        [ch["text"] for ch in window],
+        n_cards=body.n + 2,
+        use_llm=bool(settings.get("use_llm")),
+    )
+    fresh = [d for d in drafts if d.prompt not in existing][: body.n]
+    now = iso(utcnow())
+    rows = [
+        (
+            new_id("card"),
+            concept_id,
+            c["document_id"],
+            d.kind,
+            d.prompt,
+            d.answer,
+            d.explanation,
+            window[d.source_index]["id"] if d.source_index is not None and d.source_index < len(window) else None,
+            "generated",
+            now,
+        )
+        for d in fresh
+    ]
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT INTO cards (id, concept_id, document_id, kind, prompt, answer, explanation,
+                   source_chunk_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.execute(
+            "UPDATE documents SET card_count = (SELECT COUNT(*) FROM cards WHERE document_id = ?) WHERE id = ?",
+            (c["document_id"], c["document_id"]),
+        )
+    return {"created": len(rows)}

@@ -1,0 +1,11 @@
+.venv
+.git
+data
+**/node_modules
+frontend/dist
+frontend-test
+.impeccable
+.claude
+.pytest_cache
+**/__pycache__
+.env

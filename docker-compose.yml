@@ -1,21 +1,21 @@
-version: "3.8"
-
 services:
-  weaviate:
-    image: semitechnologies/weaviate:1.24.6
-    container_name: notforgotten_weaviate
-    restart: unless-stopped
+  notforgotten:
+    build: .
     ports:
       - "8080:8080"
-      - "50051:50051"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
-      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
-      ENABLE_MODULES: ""
-      CLUSTER_HOSTNAME: "node1"
+      # Container paths win over any local-dev paths in .env.
+      CORS_ORIGINS: http://localhost:8080
+      DB_PATH: /data/memory.db
+      CHROMA_DB_DIR: /data/chroma
+      HF_HOME: /data/hf_cache
+      SENTENCE_TRANSFORMERS_HOME: /opt/models
     volumes:
-      - weaviate_data:/var/lib/weaviate
+      - notforgotten-data:/data
+    restart: unless-stopped
 
 volumes:
-  weaviate_data:
+  notforgotten-data:

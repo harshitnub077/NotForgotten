@@ -1,74 +1,149 @@
-# NotForgotten 🧠
+# NotForgotten
 
-> **AI-powered spaced repetition learning system** — combines semantic search with the Ebbinghaus forgetting curve to surface what you're about to forget, before you forget it.
+**Remember it on exam day.** NotForgotten turns your PDFs, notes and articles into recall questions, schedules each one just before you'd forget it, and plans backwards from your exam date.
+
+It is not another flashcard app. The unit of memory is the **concept**: concepts are discovered automatically, linked in a prerequisite graph where forgetting propagates, reviewed by *typing* answers that are graded on meaning, and scheduled with **FSRS-6**, the state-of-the-art spaced-repetition model, fitted to how *you* forget.
+
+---
+
+## What it does
+
+| | |
+|---|---|
+| **Add anything** | Drag in PDFs, Markdown/TXT, paste notes, or import a web page. Concepts are discovered, named, summarised and linked. |
+| **Recall questions, written for you** | Question/answer, fill-the-gap and "explain why" cards following the minimum-information principle (LLM, with an offline fallback). |
+| **Typed recall, graded** | You write the answer from memory. It's graded on meaning (LLM rubric, or sentence-embedding similarity + key-term recall offline) and mapped to an FSRS rating. |
+| **Confidence calibration** | Say how sure you are before checking. Insights report Brier score, calibration error and over/under-confidence: the "illusion of competence", measured. |
+| **Smart queues** | *Due*, *time-boxed* ("I have 10 minutes": the reviews that protect the most memory per second), *weakest first*, and *exam* modes, interleaved across concepts. |
+| **Knowledge map** | Force-directed concept graph with a **time machine**: drag the clock forward to see what fades if you stop studying. |
+| **Shaky foundations** | If a concept builds on prerequisites you're forgetting, its *effective* recall is discounted and the weak foundations are named. |
+| **Exam planner** | Set a date and target recall; it simulates every day until then, adds just-in-time final reviews, and reports minutes/day and projected exam-day recall. |
+| **Memory-aware tutor** | Streaming chat (explain / Socratic / quiz) that cites your sources, slips in recall checks on fading concepts, and turns answers into cards. |
+| **Feynman mode** | Explain a concept in plain words; get coverage, clarity, missed ideas and a probing follow-up question. |
+| **Insights** | Year heatmap, true retention, keep-vs-stop forecast, workload forecast, memory-strength distribution, interactive forgetting-curve playground. |
+| **Personal forgetting curve** | One click fits FSRS parameters to your own review history (regularised maximum likelihood). |
+
+Everything works **without an API key**. An LLM (Groq, OpenAI or Anthropic) makes questions, grading and tutoring richer.
+
+---
+
+## The maths
+
+### FSRS-6 memory model (`memory/fsrs.py`)
+Each card has difficulty *D*, stability *S* (days until recall drops to 90%) and retrievability *R*:
+
+```
+R(t, S) = (1 + F·t/S)^(−w20),     F = 0.9^(−1/w20) − 1
+```
+
+A power law, not Ebbinghaus' exponential: a population of memories with different decay rates averages to a power law, and it fits real review logs better. Stability grows after successful recall by
+
+```
+S' = S · (1 + e^w8 · (11 − D) · S^(−w9) · (e^(w10·(1−R)) − 1) · hard/easy modifiers)
+```
+
+so recalling at *lower* R yields a *bigger* gain (the spacing effect), and lapses use the post-forgetting stability formula. All 21 FSRS-6 default weights are included.
+
+### Value of a review (`memory/planner.py`)
+The area under the forgetting curve has a closed form ("retention-days"):
+
+```
+∫ R dt = S / (F·(1−d)) · [(1 + F·t/S)^(1−d)] evaluated over the horizon
+```
+
+The expected gain of reviewing now over a 30-day horizon is
+
+```
+gain = R·A(S_recall) + (1−R)·A(S_lapse) − A(no review)
+```
+
+and dividing by the expected seconds per review gives *retention-days per second*. Time-boxed sessions are a greedy knapsack over that ratio.
+
+### Forgetting propagation (`knowledge_graph/propagation.py`)
+For prerequisite edges u → v with similarity weight w, evaluated in topological order:
+
+```
+R_eff(v) = R(v) · Π (1 − λ·w·max(0, τ − R_eff(u)) / τ),   τ = 0.9
+```
+
+### Calibration (`memory/calibration.py`)
+Brier score, expected calibration error, resolution and overconfidence = mean(confidence) − accuracy.
+
+### Personal parameters (`memory/optimizer.py`)
+MAP estimate over key FSRS weights: binary cross-entropy of predicted R against actual recall on spaced reviews, plus a Gaussian prior centred on the population defaults (strength fades with evidence), optimised with bounded L-BFGS-B. A fit is accepted only if log-loss improves and calibration doesn't degrade.
+
+### Concept discovery (`nlp/concepts.py`)
+Author structure first (headed sections become concepts; oversized ones are sub-clustered); otherwise position-aware Ward clustering of sentence embeddings with silhouette model selection inside a granularity prior. Concepts are named with class-based TF-IDF (or an LLM) and linked by centroid similarity.
 
 ---
 
 ## Architecture
 
 ```
-PDF → chunk → embed → ChromaDB (semantic store)
-                           ↓
-               HybridRetriever (α·semantic + (1-α)·urgency)
-                           ↓
-               LangGraph Agent (retrieve → generate → assess → update)
-                           ↓
-               SQLite (SM-2 memory) + networkx (concept graph)
-                           ↓
-               FastAPI (/session/* + /dashboard)
+frontend/   React 18 + Vite + TypeScript — "terminal wayfinding" design system, hand-built SVG charts, d3-force graph
+api/        FastAPI routes (/api/*), SSE streaming tutor; serves frontend/dist in production
+core/       settings, card memory, analytics read models, demo library
+memory/     FSRS-6, planner, calibration, optimizer, SQLite schema (+ legacy SM-2)
+nlp/        text utils, concept discovery, card generation, grading
+ingestion/  PDF / text / URL extraction, chunking, embeddings, background pipeline
+retrieval/  ChromaDB vector store + forgetting-aware reranking
+knowledge_graph/  prerequisite propagation
+llm/        provider-agnostic client (Groq / OpenAI / Anthropic) with offline degradation
 ```
 
-## Quick Start
+Storage is local: SQLite (`data/memory.db`), ChromaDB (`data/chroma`), and the `all-MiniLM-L6-v2` embedding model (`data/hf_cache`).
 
-### 1. Install dependencies
+---
+
+## Quick start
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # optionally add GROQ_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
 ```
 
-### 2. Configure environment
+Run the API:
+
 ```bash
-cp .env.example .env
-# Edit .env with your LLM_PROVIDER and API key
+.venv/bin/uvicorn api.main:app --port 8080
 ```
 
-### 3. Start the API
+Run the web app (in another terminal):
+
 ```bash
-uvicorn api.main:app --reload --port 8080
+npm --prefix frontend install && npm --prefix frontend run dev
 ```
 
-### 4. Ingest your own PDF
+Open http://localhost:5173 and choose **Try the demo library** to explore with sample texts and a simulated two-month study history, or add your own material.
+
+For a single-server production build:
+
 ```bash
-# Upload via curl or use the Frontend UI
-curl -X POST http://localhost:8080/ingest -F "file=@your_document.pdf"
+npm --prefix frontend run build && .venv/bin/uvicorn api.main:app --port 8080
 ```
 
-### 5. Begin a session
+### Docker (one container, data in a volume)
+
 ```bash
-# Ask a question
-curl -X POST http://localhost:8080/session/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Summarize the key points", "session_id": "abc123"}'
-
-# Rate your understanding (1-5) to update memory
-curl -X POST http://localhost:8080/session/rate \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "abc123", "concept_id": "your_concept_id", "rating": 4}'
+docker compose up --build
 ```
 
-## API Endpoints
+Then open http://localhost:8080. The image bakes in the embedding model and serves the API and the web app on one port; your library lives in the `notforgotten-data` volume. Put an LLM key in `.env` to enable AI features.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/session/start` | Returns today's highest-urgency concepts |
-| POST | `/session/query` | Runs full LangGraph pipeline, returns answer + sources |
-| POST | `/session/rate` | Accepts self-rating, triggers SM-2 memory update |
-| GET | `/dashboard` | Full memory state JSON for frontend |
+> NotForgotten is single-user today: anyone who can reach the server can use the library. Put it behind authentication (or keep it on localhost) before exposing it to the internet.
 
-## Key Concepts
+## Tests
 
-- **SM-2 Algorithm** — Spaced repetition scheduler. Low ratings → shorter intervals. High ratings → longer intervals.
-- **Ebbinghaus Retention** — `R = e^(−t/S)` where `t` = days since review, `S` = stability. Low retention = high urgency.
-- **Hybrid Retrieval** — `score = α × semantic_similarity + (1−α) × urgency`. Chunks from forgotten concepts get boosted automatically.
-- **Re-Teach Mode** — If you rate understanding ≤ 2, the agent loops back and retrieves additional context.
+```bash
+.venv/bin/python -m pytest
+```
 
+98 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
+
+## Roadmap
+
+- Accounts, sync and mobile apps (PWA first)
+- Image occlusion for diagrams; OCR for scanned PDFs
+- Spaced *interleaved problem practice* for maths and physics
+- Shared class decks for teachers, with cohort analytics
