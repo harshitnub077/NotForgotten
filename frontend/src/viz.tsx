@@ -36,6 +36,7 @@ export function LineChart({
   series,
   height = 220,
   yMax = 1,
+  yMin = 0,
   yFormat = (v: number) => `${Math.round(v * 100)}%`,
   xFormat = (v: number) => String(v),
   xLabels,
@@ -45,6 +46,7 @@ export function LineChart({
   series: Series[];
   height?: number;
   yMax?: number;
+  yMin?: number;
   yFormat?: (v: number) => string;
   xFormat?: (v: number) => string;
   xLabels?: number[];
@@ -57,8 +59,8 @@ export function LineChart({
   const xMin = xs.length ? Math.min(...xs) : 0;
   const xMax = xs.length ? Math.max(...xs) : 1;
   const sx = (x: number) => pad.l + ((x - xMin) / (xMax - xMin || 1)) * (W - pad.l - pad.r);
-  const sy = (y: number) => pad.t + (1 - y / yMax) * (height - pad.t - pad.b);
-  const yt = ticks(yMax);
+  const sy = (y: number) => pad.t + (1 - (y - yMin) / (yMax - yMin || 1)) * (height - pad.t - pad.b);
+  const yt = ticks(yMax - yMin).map((v) => +(v + yMin).toFixed(6)).filter((v) => v <= yMax + 1e-9);
 
   const paths = series.map((s) => {
     let d = '';
@@ -72,7 +74,7 @@ export function LineChart({
       started = true;
     });
     const valid = s.points.filter((p) => p.y != null);
-    const area = s.area && valid.length ? `${d}L${sx(valid[valid.length - 1].x)},${sy(0)}L${sx(valid[0].x)},${sy(0)}Z` : null;
+    const area = s.area && valid.length ? `${d}L${sx(valid[valid.length - 1].x)},${sy(yMin)}L${sx(valid[0].x)},${sy(yMin)}Z` : null;
     return { d, area };
   });
 
@@ -328,7 +330,7 @@ export function CalibrationPlot({ bins }: { bins: { confidence: number; accuracy
   const sy = (v: number) => S - pad - v * (S - pad - 12);
   const maxN = Math.max(1, ...bins.map((b) => b.count));
   return (
-    <div className="chart" ref={ref} style={{ maxWidth: 380 }}>
+    <div className="chart" ref={ref} style={{ maxWidth: 320 }}>
       <svg viewBox={`0 0 ${S} ${S}`} role="img" aria-label="How sure you felt versus how often you were right" onPointerLeave={() => setHover(null)}>
         {[0, 0.5, 1].map((v) => (
           <g key={v}>

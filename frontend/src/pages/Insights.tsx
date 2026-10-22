@@ -206,6 +206,8 @@ export default function Insights() {
     );
 
   const fc = data.forecast;
+  const lows = fc.flatMap((d) => [d.retention_if_idle, d.retention_if_kept]).filter((v) => v > 0);
+  const yMin = lows.length ? Math.max(0, Math.floor((Math.min(...lows) - 0.05) * 10) / 10) : 0;
   return (
     <>
       <SignBand icon={<BarChart3 size={44} />} title="Insights" sub="Your memory, measured from every answer you've typed. Nothing here is a guess." />
@@ -232,6 +234,7 @@ export default function Insights() {
             <div className="panel-body field-stack">
               <LineChart
                 ariaLabel="Average recall over the next 30 days with and without reviews"
+                yMin={yMin}
                 series={[
                   { name: 'Keep reviewing', color: 'var(--c1)', points: fc.map((d) => ({ x: d.day, y: d.retention_if_kept })) },
                   { name: 'Stop today', color: 'var(--c2)', dashed: true, points: fc.map((d) => ({ x: d.day, y: d.retention_if_idle })) },

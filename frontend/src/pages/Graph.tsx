@@ -39,6 +39,7 @@ export default function Graph() {
   const nodesRef = useRef<Map<string, SimNode>>(new Map());
   const linksRef = useRef<SimLink[]>([]);
   const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
+  const fitted = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ id: string | null; startX: number; startY: number; vx: number; vy: number; moved: boolean } | null>(null);
   const [size, setSize] = useState({ w: 900, h: 620 });
@@ -69,30 +70,40 @@ export default function Graph() {
     const anchors = new Map(
       docs.map((d, i) => {
         const a = (i / Math.max(docs.length, 1)) * Math.PI * 2 - Math.PI / 2;
-        const r = docs.length > 1 ? Math.min(size.w, size.h) * 0.28 : 0;
+        const r = docs.length > 1 ? Math.min(size.w, size.h) * 0.22 : 0;
         return [d, { x: Math.cos(a) * r, y: Math.sin(a) * r }];
       }),
     );
     const next = new Map<string, SimNode>();
-    let isNew = false;
+    let structural = !simRef.current || map.size !== data.nodes.length;
     data.nodes.forEach((n) => {
       const prev = map.get(n.id);
       const anchor = anchors.get(n.document_id)!;
-      if (!prev) isNew = true;
-      next.set(n.id, {
-        ...(prev ?? { x: anchor.x + (Math.random() - 0.5) * 80, y: anchor.y + (Math.random() - 0.5) * 80 }),
-        ...n,
-        w: nodeWidth(n.name),
-        h: 30,
-      } as SimNode);
+      if (prev) {
+        // Mutate in place: the simulation holds these objects.
+        Object.assign(prev, n);
+        next.set(n.id, prev);
+      } else {
+        structural = true;
+        next.set(n.id, {
+          ...n,
+          x: anchor.x + (Math.random() - 0.5) * 80,
+          y: anchor.y + (Math.random() - 0.5) * 80,
+          w: nodeWidth(n.name),
+          h: 30,
+        } as SimNode);
+      }
     });
     nodesRef.current = next;
-    linksRef.current = data.edges.filter((e) => next.has(e.source) && next.has(e.target)).map((e) => ({ ...e }));
+    linksRef.current = data.edges
+      .filter((e) => next.has(e.source) && next.has(e.target))
+      .map((e) => ({ ...e, source: next.get(e.source)!, target: next.get(e.target)! }));
 
-    if (!simRef.current || isNew) {
+    if (structural) {
       simRef.current?.stop();
+      fitted.current = false;
       const sim = forceSimulation<SimNode, SimLink>(Array.from(next.values()))
-        .force('charge', forceManyBody<SimNode>().strength(-340))
+        .force('charge', forceManyBody<SimNode>().strength(-240))
         .force(
           'link',
           forceLink<SimNode, SimLink>(linksRef.current)
@@ -104,14 +115,39 @@ export default function Graph() {
         .force('x', forceX<SimNode>((d) => anchors.get(d.document_id)?.x ?? 0).strength(0.08))
         .force('y', forceY<SimNode>((d) => anchors.get(d.document_id)?.y ?? 0).strength(0.12))
         .alpha(1)
-        .on('tick', () => setTick((t) => t + 1));
+        .on('tick', () => {
+          setTick((t) => t + 1);
+          if (!fitted.current && sim.alpha() < 0.08) {
+            fitted.current = true;
+            fitToView();
+          }
+        });
       simRef.current = sim;
     } else {
       setTick((t) => t + 1);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, size.w, size.h]);
 
-  useEffect(() => () => void simRef.current?.stop(), []);
+  useEffect(
+    () => () => {
+      simRef.current?.stop();
+      simRef.current = null;
+      nodesRef.current = new Map();
+    },
+    [],
+  );
+
+  function fitToView() {
+    const all = Array.from(nodesRef.current.values()).filter((n) => n.x != null && n.y != null);
+    if (!all.length) return;
+    const minX = Math.min(...all.map((n) => n.x! - n.w / 2));
+    const maxX = Math.max(...all.map((n) => n.x! + n.w / 2));
+    const minY = Math.min(...all.map((n) => n.y! - n.h / 2));
+    const maxY = Math.max(...all.map((n) => n.y! + n.h / 2));
+    const k = Math.min(1.4, Math.max(0.35, Math.min((size.w - 48) / (maxX - minX || 1), (size.h - 48) / (maxY - minY || 1))));
+    setView({ k, x: (-(minX + maxX) / 2) * k, y: (-(minY + maxY) / 2) * k });
+  }
 
   // Wheel zoom needs a non-passive listener so the page doesn't scroll underneath.
   useEffect(() => {
@@ -253,7 +289,7 @@ export default function Graph() {
               <button className="icon-btn" onClick={() => zoom(1 / 1.2)} aria-label="Zoom out">
                 <Minus size={16} />
               </button>
-              <button className="icon-btn" onClick={() => setView({ x: 0, y: 0, k: 1 })} aria-label="Reset view">
+              <button className="icon-btn" onClick={fitToView} aria-label="Fit to view">
                 <RotateCcw size={16} />
               </button>
             </div>

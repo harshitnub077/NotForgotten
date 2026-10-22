@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BookOpen, CalendarClock, Flame, Gauge, Repeat2, Sparkles, Timer, UploadCloud } from 'lucide-react';
@@ -121,9 +121,29 @@ export function ConceptBoard({ rows, title = 'Concept departures', limit = 8 }: 
   );
 }
 
+function useActiveJobs(onFinished: () => void) {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const count = useRef(0);
+  useEffect(() => {
+    let timer = 0;
+    const poll = async () => {
+      const active = await api.jobs().catch(() => [] as Job[]);
+      if (active.length < count.current) onFinished();
+      count.current = active.length;
+      setJobs(active);
+      timer = window.setTimeout(poll, active.length ? 1500 : 15_000);
+    };
+    poll();
+    return () => window.clearTimeout(timer);
+  }, [onFinished]);
+  return jobs;
+}
+
 export default function Today() {
   const { data, error, loading, reload } = useLoad(() => api.today());
   const navigate = useNavigate();
+  const quietReload = useCallback(() => reload(true), [reload]);
+  const jobs = useActiveJobs(quietReload);
 
   useEffect(() => {
     const id = window.setInterval(() => reload(true), 60_000);
@@ -144,7 +164,7 @@ export default function Today() {
       </div>
     );
   if (!data) return null;
-  if (data.documents_total === 0) return <FirstRun onReady={() => reload()} />;
+  if (data.documents_total === 0 || (data.cards_total === 0 && jobs.length > 0)) return <FirstRun onReady={() => reload()} />;
 
   const total = data.due + data.new;
   const exam = data.exams[0];
@@ -269,6 +289,19 @@ export default function Today() {
       </section>
 
       <div className="page">
+        {jobs.length > 0 && (
+          <section className="board" aria-live="polite">
+            {jobs.map((j) => (
+              <div key={j.id} className="board-row" style={{ ['--board-cols' as string]: '150px 1fr 60px' }}>
+                <Flap text={j.stage.toUpperCase()} className="status boarding" />
+                <span className="name" style={{ fontWeight: 500 }}>
+                  {j.message}
+                </span>
+                <span className="mono">{Math.round(j.progress * 100)}%</span>
+              </div>
+            ))}
+          </section>
+        )}
         <div className="grid cols-2">
           <section className="surface">
             <div className="panel-head">

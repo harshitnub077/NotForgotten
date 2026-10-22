@@ -13,6 +13,15 @@ measure short-term memory, which FSRS models separately). Optimisation is
 bounded L-BFGS-B over a subset of the 21 weights: initial stabilities
 (w0–w3), recall-stability growth (w8–w10), lapse stability (w11) and the
 curve's decay exponent (w20).
+
+With a few hundred reviews an unconstrained fit overfits, so this is a MAP
+estimate: a Gaussian prior centred on the population defaults, in relative
+units, whose weight fades as evidence accumulates:
+
+    J(w) = L(w) + (k / n) · Σ_i ((w_i − w0_i) / w0_i)²
+
+A fit is only accepted if it lowers log-loss *and* doesn't worsen
+calibration (binned RMSE) by more than 10%.
 """
 from __future__ import annotations
 
@@ -33,9 +42,10 @@ BOUNDS: Dict[int, Tuple[float, float]] = {
     9: (0.0, 0.8),
     10: (0.001, 3.5),
     11: (0.001, 5.0),
-    20: (0.1, 0.8),
+    20: (0.1, 0.6),
 }
 MIN_REVIEWS = 30
+PRIOR_STRENGTH = 6.0  # pseudo-observations pulling each weight toward the population default
 _EPS = 1e-6
 
 ReviewLog = Sequence[Tuple[datetime, int]]  # (timestamp, rating 1-4) per card
@@ -113,6 +123,8 @@ def fit(
     x0 = [base[i] for i in FREE_PARAMS]
     bounds = [BOUNDS[i] for i in FREE_PARAMS]
 
+    prior = list(DEFAULT_PARAMETERS)
+
     def objective(x: Sequence[float]) -> float:
         w = list(base)
         for idx, val in zip(FREE_PARAMS, x):
@@ -121,7 +133,8 @@ def fit(
         for i in (1, 2, 3):
             w[i] = max(w[i], w[i - 1])
         loss, _, _ = evaluate(w, logs)
-        return loss
+        penalty = sum(((w[i] - prior[i]) / max(abs(prior[i]), 0.05)) ** 2 for i in FREE_PARAMS)
+        return loss + PRIOR_STRENGTH / n * penalty
 
     res = minimize(objective, x0, method="L-BFGS-B", bounds=bounds, options={"maxiter": max_iter})
     fitted = list(base)
@@ -131,7 +144,7 @@ def fit(
         fitted[i] = max(fitted[i], fitted[i - 1])
 
     loss1, rmse1, _ = evaluate(fitted, logs)
-    improved = loss1 < loss0 - 1e-4
+    improved = loss1 < loss0 - 1e-3 and rmse1 <= rmse0 * 1.1 + 1e-3
     return FitResult(
         parameters=fitted if improved else base,
         loss_before=round(loss0, 5),

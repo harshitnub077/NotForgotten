@@ -83,7 +83,7 @@ function ScheduleBoard({ plan }: { plan: ExamPlan }) {
       </div>
       {rows.map((d) => (
         <div key={d.day} className="board-row" style={{ ['--board-cols' as string]: '1.2fr 1fr 1fr 1fr' }}>
-          <span className="name">{d.day === 0 ? 'Today' : shortDate(d.date + 'T12:00:00')}</span>
+          <span className="name">{d.day === 0 ? 'Today' : new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}</span>
           <span>{d.reviews}</span>
           <span>{d.new}</span>
           <span className="status boarding">{fmtMinutes(d.minutes)}</span>

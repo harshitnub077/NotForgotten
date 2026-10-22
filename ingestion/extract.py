@@ -41,6 +41,25 @@ def extract_pdf(path: str, fallback_title: str) -> Extracted:
     return Extracted(title, pages)
 
 
+_BACK_MATTER = re.compile(
+    r"^#{1,3}\s*(references|notes|citations|bibliography|further reading|external links|see also|sources|works cited)\b",
+    re.I | re.M,
+)
+_CITATION = re.compile(r"\(\d{4}[a-z]?\)|\bdoi\b|\bISBN\b|\bRetrieved\b|\bpp?\.\s*\d|\bet al\.|\bVol\.|\bJournal of\b", re.I)
+
+
+def strip_back_matter(text: str) -> str:
+    """Drop references / further-reading sections that follow the body."""
+    m = _BACK_MATTER.search(text)
+    return text[: m.start()] if m and m.start() > len(text) * 0.3 else text
+
+
+def is_citation_block(text: str) -> bool:
+    """A passage that is mostly bibliography entries, not teachable content."""
+    hits = len(_CITATION.findall(text))
+    return hits >= 3 and hits * 120 > len(text)
+
+
 def split_sections(text: str) -> List[Tuple[int, str]]:
     """Split long text into pseudo-pages at headings or paragraph boundaries."""
     text = clean_text(text)
@@ -148,7 +167,7 @@ def extract_url(url: str) -> Extracted:
     # Drop short boilerplate lines (menus, buttons) that survive tag stripping.
     lines = [ln.strip() for ln in text.split("\n")]
     kept = [ln for ln in lines if len(ln) > 60 or ln.startswith("#") or not ln]
-    body = "\n".join(kept)
+    body = strip_back_matter("\n".join(kept))
     title = re.sub(r"\s+", " ", parser.title).strip() or urlparse(url).netloc
     extracted = extract_text(body, title)
     if sum(len(t) for _, t in extracted.pages) < 300:

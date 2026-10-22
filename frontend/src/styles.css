@@ -423,15 +423,17 @@ textarea {
 /* ─── Buttons ────────────────────────────────────────────── */
 
 .btn {
+  --btn-bg: #0b0b0b;
+  --btn-fg: #fff;
   display: inline-flex;
   align-items: center;
   gap: 12px;
   min-height: 46px;
   padding: 0 18px 0 0;
-  border: 2px solid var(--sign-ink);
+  border: 2px solid var(--btn-bg);
   border-radius: var(--r);
-  background: var(--sign-ink);
-  color: #fff;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font-weight: 700;
   font-size: 1rem;
   cursor: pointer;
@@ -2237,4 +2239,32 @@ input[type='range'] {
   .feature-board {
     grid-template-columns: 1fr;
   }
+}
+
+/* Night terminal: lit yellow actions off the sign bands */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .btn:not(.secondary):not(.yellow):not(.danger) {
+    --btn-bg: var(--sign);
+    --btn-fg: #0b0b0b;
+  }
+}
+:root[data-theme='dark'] .btn:not(.secondary):not(.yellow):not(.danger) {
+  --btn-bg: var(--sign);
+  --btn-fg: #0b0b0b;
+}
+:root .on-sign .btn:not(.secondary):not(.yellow):not(.danger) {
+  --btn-bg: #0b0b0b;
+  --btn-fg: #fff;
+}
+
+/* Night terminal: pictograms off the sign bands become lit sign tiles */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .page .picto:not(.inv) {
+    background: var(--sign);
+    color: #0b0b0b;
+  }
+}
+:root[data-theme='dark'] .page .picto:not(.inv) {
+  background: var(--sign);
+  color: #0b0b0b;
 }

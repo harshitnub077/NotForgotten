@@ -159,3 +159,20 @@ class TestJSON:
     def test_parse_failure(self):
         with pytest.raises(ValueError):
             parse_json("nothing here")
+
+
+class TestExtraction:
+    def test_back_matter_removed(self):
+        from ingestion.extract import strip_back_matter
+
+        body = "# Topic\n\n" + "Real content sentence. " * 40
+        text = body + "\n## References\n\nSmith (2004). Journal of Things."
+        assert "Smith" not in strip_back_matter(text)
+        assert strip_back_matter(text).startswith("# Topic")
+
+    def test_citation_block_detected(self):
+        from ingestion.extract import is_citation_block
+
+        refs = "Roediger, H. (2006). Test-enhanced learning. Psychological Science. doi:10.1111/x. Karpicke, J. et al. (2008). Journal of Memory, pp. 4-9."
+        assert is_citation_block(refs)
+        assert not is_citation_block(PHOTO)

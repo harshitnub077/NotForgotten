@@ -7,6 +7,8 @@ from typing import List, Sequence, Tuple
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from ingestion.extract import is_citation_block
+
 _TOKENIZER = tiktoken.get_encoding("cl100k_base")
 
 CHUNK_TOKENS = 220
@@ -42,6 +44,8 @@ def chunk_pages(
     for page, text in pages:
         for piece in splitter.split_text(text):
             piece = piece.strip()
+            if is_citation_block(piece):
+                continue
             if len(piece) < MIN_CHUNK_CHARS:
                 # Tiny tails merge into the next chunk instead of becoming noise.
                 carry, carry_page = (carry + " " + piece).strip(), page
