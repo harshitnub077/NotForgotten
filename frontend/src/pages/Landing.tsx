@@ -129,7 +129,7 @@ export default function Landing() {
           </Link>
           <span className="spacer" />
           <Btn to="/" size="sm">
-            Open the app
+            Open app
           </Btn>
         </nav>
         <div className="land-hero">

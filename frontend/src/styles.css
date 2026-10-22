@@ -1209,8 +1209,7 @@ input[type='range'] {
   margin: 0 0.15em;
   vertical-align: -0.08em;
   background: var(--sign);
-  border-bottom: 3px solid var(--sign-ink);
-  border-radius: 2px;
+  box-shadow: inset 0 -3px 0 var(--sign-ink);
 }
 .answer-zone {
   display: flex;
@@ -1449,8 +1448,10 @@ input[type='range'] {
 .job-bar i {
   display: block;
   height: 100%;
+  width: 100%;
   background: var(--flap);
-  transition: width 0.6s var(--ease);
+  transform-origin: left;
+  transition: transform 0.6s var(--ease);
 }
 .hit {
   display: block;
@@ -2259,12 +2260,52 @@ input[type='range'] {
 
 /* Night terminal: pictograms off the sign bands become lit sign tiles */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .page .picto:not(.inv) {
+  :root:not([data-theme='light']) .page .picto:not(.inv),
+  :root:not([data-theme='light']) .land-section .picto {
     background: var(--sign);
     color: #0b0b0b;
   }
 }
-:root[data-theme='dark'] .page .picto:not(.inv) {
+:root[data-theme='dark'] .page .picto:not(.inv),
+:root[data-theme='dark'] .land-section .picto {
   background: var(--sign);
   color: #0b0b0b;
+}
+
+/* ─── Small screens ──────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .ticks {
+    display: none;
+  }
+  .review-band-inner .btn {
+    margin-left: auto;
+  }
+  .confidence .segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .confidence .segmented button {
+    border-right: 0;
+    border-bottom: 2px solid var(--ink);
+  }
+  .confidence .segmented button:nth-child(odd) {
+    border-right: 2px solid var(--ink);
+  }
+  .confidence .segmented button:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  .board-head .spacer {
+    display: none;
+  }
+  .land-nav .brand-name {
+    font-size: 1.15rem;
+  }
+  .land-nav .btn .arrow {
+    display: none;
+  }
+  .land-nav .btn {
+    padding: 0 12px;
+  }
 }

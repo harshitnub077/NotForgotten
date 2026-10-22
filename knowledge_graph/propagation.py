@@ -2,12 +2,14 @@
 Forgetting propagation through prerequisite edges.
 
 Knowing a concept is only as reliable as the foundations it rests on. For a
-prerequisite edge u → v with weight w (centroid similarity), a decayed
-prerequisite discounts the dependent concept's *effective* retention:
+prerequisite edge u → v with weight w (centroid similarity), a prerequisite
+that has slipped below the review line τ discounts the dependent concept's
+*effective* retention in proportion to its shortfall:
 
-    R_eff(v) = R(v) · Π_{u → v} (1 − λ · w · (1 − R_eff(u)))
+    R_eff(v) = R(v) · Π_{u → v} (1 − λ · w · max(0, τ − R_eff(u)) / τ)
 
-evaluated in topological order, so weakness compounds down a chain. The
+evaluated in topological order, so weakness compounds down a chain, while
+prerequisites that are on schedule (R ≥ τ) cost nothing. The
 gap between R(v) and R_eff(v) is "structural risk": you may still recall v
 today, but your grasp of it is fragile because what it builds on is fading.
 """
@@ -18,6 +20,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import networkx as nx
 
 LAMBDA = 0.6
+REVIEW_LINE = 0.9
 
 Edge = Tuple[str, str, float, str]
 
@@ -26,6 +29,7 @@ def effective_retention(
     retention: Dict[str, Optional[float]],
     edges: Sequence[Edge],
     lam: float = LAMBDA,
+    tau: float = REVIEW_LINE,
 ) -> Dict[str, Optional[float]]:
     g = nx.DiGraph()
     g.add_nodes_from(retention)
@@ -51,7 +55,7 @@ def effective_retention(
             pr = eff.get(pred)
             if pr is None:
                 continue  # unlearned prerequisite: unknown, not penalised
-            value *= 1.0 - lam * g[pred][node]["weight"] * (1.0 - pr)
+            value *= 1.0 - lam * g[pred][node]["weight"] * max(0.0, tau - pr) / tau
         eff[node] = max(0.0, min(1.0, value))
     return eff
 
@@ -69,6 +73,8 @@ def weakest_foundations(
             g.add_edge(src, tgt)
     if concept_id not in g:
         return []
-    ancestors = [a for a in nx.ancestors(g, concept_id) if eff.get(a) is not None]
+    ancestors = [
+        a for a in nx.ancestors(g, concept_id) if eff.get(a) is not None and eff[a] < REVIEW_LINE  # type: ignore[operator]
+    ]
     ancestors.sort(key=lambda a: eff[a])  # type: ignore[index]
     return ancestors[:limit]

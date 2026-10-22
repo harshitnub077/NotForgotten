@@ -58,6 +58,11 @@ class TestPropagation:
         edges = [("a", "b", 1.0, "prerequisite"), ("b", "a", 1.0, "prerequisite")]
         assert effective_retention({"a": 0.5, "b": 0.5}, edges) == {"a": 0.5, "b": 0.5}
 
+    def test_on_schedule_prerequisite_costs_nothing(self):
+        eff = effective_retention({"a": 0.92, "b": 0.95, "c": 0.95, "x": 0.9}, self.EDGES)
+        assert eff["c"] == pytest.approx(0.95)
+
     def test_weakest_foundations(self):
         eff = {"a": 0.2, "b": 0.7, "c": 0.9}
         assert weakest_foundations("c", eff, self.EDGES) == ["a", "b"]
+        assert weakest_foundations("c", {"a": 0.95, "b": 0.93, "c": 0.9}, self.EDGES) == []

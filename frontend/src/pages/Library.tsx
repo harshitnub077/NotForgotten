@@ -23,7 +23,7 @@ function JobBoard({ jobs }: { jobs: Job[] }) {
           </div>
           <div className="job-msg">{j.message}</div>
           <div className="job-bar">
-            <i style={{ width: `${Math.max(3, j.progress * 100)}%` }} />
+            <i style={{ transform: `scaleX(${Math.max(0.03, j.progress)})` }} />
           </div>
         </div>
       ))}
