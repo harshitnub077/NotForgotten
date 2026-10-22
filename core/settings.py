@@ -1,10 +1,11 @@
-"""User settings persisted in SQLite (scheduler parameters, limits, goals)."""
+"""Per-user settings (scheduler parameters, limits, goals)."""
 from __future__ import annotations
 
 from typing import Any, Dict
 
 from memory.fsrs import DEFAULT_DESIRED_RETENTION, DEFAULT_PARAMETERS, FSRS
 from memory.schema import get_conn, init_db
+from core.auth import uid
 from core.util import jdumps, jloads
 
 DEFAULTS: Dict[str, Any] = {
@@ -21,7 +22,7 @@ DEFAULTS: Dict[str, Any] = {
 def get_all() -> Dict[str, Any]:
     init_db()
     with get_conn() as conn:
-        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        rows = conn.execute("SELECT key, value FROM user_settings WHERE user_id = ?", (uid(),)).fetchall()
     out = dict(DEFAULTS)
     for r in rows:
         out[r["key"]] = jloads(r["value"], DEFAULTS.get(r["key"]))
@@ -39,9 +40,9 @@ def update(values: Dict[str, Any]) -> Dict[str, Any]:
             if key not in DEFAULTS:
                 raise KeyError(key)
             conn.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, jdumps(value)),
+                "INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?) "
+                "ON CONFLICT (user_id, key) DO UPDATE SET value = excluded.value",
+                (uid(), key, jdumps(value)),
             )
     return get_all()
 

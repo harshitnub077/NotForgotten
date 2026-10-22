@@ -1,11 +1,11 @@
 """Card memory state: loading, presenting, reviewing, and concept roll-ups."""
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
 from core import settings
+from core.auth import uid
 from core.util import iso, parse_dt, utcnow
 from memory.fsrs import FSRS, MemoryState
 from memory.planner import CardMemory
@@ -26,7 +26,7 @@ def fmt_interval(days: float) -> str:
     return f"{days / 365:.1f}y"
 
 
-def to_memory(row: sqlite3.Row) -> CardMemory:
+def to_memory(row: Any) -> CardMemory:
     return CardMemory(
         card_id=row["id"],
         stability=row["stability"],
@@ -37,16 +37,16 @@ def to_memory(row: sqlite3.Row) -> CardMemory:
     )
 
 
-def fetch_cards(where: str = "", params: Iterable[Any] = ()) -> List[sqlite3.Row]:
+def fetch_cards(where: str = "", params: Iterable[Any] = ()) -> List[Any]:
     init_db()
-    sql = "SELECT * FROM cards WHERE suspended = 0"
+    sql = "SELECT * FROM cards WHERE user_id = ? AND suspended = 0"
     if where:
         sql += f" AND ({where})"
     with get_conn() as conn:
-        return conn.execute(sql, tuple(params)).fetchall()
+        return conn.execute(sql, (uid(), *tuple(params))).fetchall()
 
 
-def card_view(row: sqlite3.Row, fsrs: FSRS, now: datetime, with_preview: bool = True) -> Dict[str, Any]:
+def card_view(row: Any, fsrs: FSRS, now: datetime, with_preview: bool = True) -> Dict[str, Any]:
     mem = to_memory(row)
     elapsed = mem.elapsed_days(now)
     r = None if mem.is_new else fsrs.retrievability(elapsed, float(mem.stability))
@@ -100,7 +100,7 @@ def submit_review(
     now = now or utcnow()
     fsrs = fsrs or settings.get_fsrs()
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+        row = conn.execute("SELECT * FROM cards WHERE id = ? AND user_id = ?", (card_id, uid())).fetchone()
         if row is None:
             raise KeyError(card_id)
         mem = to_memory(row)
@@ -123,11 +123,12 @@ def submit_review(
             ),
         )
         conn.execute(
-            """INSERT INTO reviews (card_id, rating, score, confidence, response, elapsed_days,
+            """INSERT INTO reviews (user_id, card_id, rating, score, confidence, response, elapsed_days,
                    scheduled_days, retrievability, stability_before, stability_after,
                    difficulty_after, duration_ms, session_id, reviewed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
+                uid(),
                 card_id,
                 rating,
                 score,
@@ -161,7 +162,7 @@ def submit_review(
 def concept_stats(
     fsrs: Optional[FSRS] = None,
     at: Optional[datetime] = None,
-    rows: Optional[List[sqlite3.Row]] = None,
+    rows: Optional[List[Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Per-concept roll-up of card memory, evaluated at time *at*."""
     fsrs = fsrs or settings.get_fsrs()

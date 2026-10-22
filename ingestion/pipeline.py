@@ -16,9 +16,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from core import settings
+from core.auth import bump_library_version, reset_current_user, set_current_user, uid
 from core.util import iso, jdumps, jloads, new_id, utcnow
 from ingestion.chunker import chunk_pages
 from ingestion.extract import Extracted, extract_pdf, extract_text, extract_url
+from retrieval.vector_store import to_blob
 from memory.schema import get_conn, init_db
 from nlp.cards import generate_cards
 from nlp.concepts import ConceptNode, build_edges, discover_concepts, refine_with_llm
@@ -47,7 +49,7 @@ def _job_update(job_id: str, stage: str, progress: float, message: str, status: 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     init_db()
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute("SELECT * FROM jobs WHERE id = ? AND user_id = ?", (job_id, uid())).fetchone()
     if row is None:
         return None
     job = dict(row)
@@ -59,7 +61,7 @@ def list_active_jobs() -> List[Dict[str, Any]]:
     init_db()
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id FROM jobs WHERE status = 'running' ORDER BY created_at DESC"
+            "SELECT id FROM jobs WHERE user_id = ? AND status = 'running' ORDER BY created_at DESC", (uid(),)
         ).fetchall()
     return [j for j in (get_job(r["id"]) for r in rows) if j]
 
@@ -77,6 +79,7 @@ def submit(source: Dict[str, Any], sync: bool = False, is_demo: bool = False) ->
         {"kind": "url", "url": str}
     """
     init_db()
+    user_id = uid()
     now = iso(utcnow())
     doc_id, job_id = new_id("doc"), new_id("job")
     title = source.get("title") or source.get("filename") or source.get("url") or "Untitled"
@@ -85,19 +88,19 @@ def submit(source: Dict[str, Any], sync: bool = False, is_demo: bool = False) ->
     )
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO documents (id, title, filename, kind, source_url, size_bytes, status, is_demo, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'processing', ?, ?)""",
-            (doc_id, title[:200], source.get("filename"), source["kind"], source.get("url"), size, int(is_demo), now),
+            """INSERT INTO documents (id, user_id, title, filename, kind, source_url, size_bytes, status, is_demo, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?)""",
+            (doc_id, user_id, title[:200], source.get("filename"), source["kind"], source.get("url"), size, int(is_demo), now),
         )
         conn.execute(
-            "INSERT INTO jobs (id, document_id, status, stage, progress, message, created_at, updated_at) "
-            "VALUES (?, ?, 'running', 'queued', 0, 'Waiting to start…', ?, ?)",
-            (job_id, doc_id, now, now),
+            "INSERT INTO jobs (id, user_id, document_id, status, stage, progress, message, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'running', 'queued', 0, 'Waiting to start…', ?, ?)",
+            (job_id, user_id, doc_id, now, now),
         )
     if sync:
-        _run(job_id, doc_id, source)
+        _run(user_id, job_id, doc_id, source)
     else:
-        _worker.submit(_run, job_id, doc_id, source)
+        _worker.submit(_run, user_id, job_id, doc_id, source)
     return {"job_id": job_id, "document_id": doc_id}
 
 
@@ -113,7 +116,9 @@ def _extract(source: Dict[str, Any]) -> Extracted:
     raise ValueError(f"Unknown source kind: {kind}")
 
 
-def _run(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
+def _run(user_id: str, job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
+    # Worker threads don't inherit the request's context: carry the user in.
+    token = set_current_user(user_id)
     try:
         _ingest(job_id, doc_id, source)
     except Exception as exc:  # noqa: BLE001 — report any failure to the user
@@ -123,13 +128,13 @@ def _run(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
             conn.execute("UPDATE documents SET status = 'failed', error = ? WHERE id = ?", (msg[:500], doc_id))
         _job_update(job_id, "failed", 1.0, msg[:300], status="failed")
     finally:
+        reset_current_user(token)
         if source.get("kind") == "pdf" and source.get("cleanup") and os.path.exists(source["path"]):
             os.remove(source["path"])
 
 
 def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
     from ingestion.embedder import embed_texts
-    from retrieval.vector_store import get_store
 
     use_llm = bool(settings.get("use_llm"))
 
@@ -165,10 +170,11 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
     with get_conn() as conn:
         for cid, d in zip(concept_ids, drafts):
             conn.execute(
-                """INSERT INTO concepts (id, document_id, name, summary, keywords, centroid, position, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO concepts (id, user_id, document_id, name, summary, keywords, centroid, position, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     cid,
+                    uid(),
                     doc_id,
                     d.name,
                     d.summary,
@@ -178,21 +184,16 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
                     now,
                 ),
             )
+        # Embeddings live next to the text, so search needs only the database.
         conn.executemany(
-            "INSERT INTO chunks (id, document_id, idx, page, text, concept_id) VALUES (?, ?, ?, ?, ?, ?)",
-            [(chunk_ids[c.idx], doc_id, c.idx, c.page, c.text, chunk_concept.get(c.idx)) for c in chunks],
+            "INSERT INTO chunks (id, user_id, document_id, idx, page, text, concept_id, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (chunk_ids[c.idx], uid(), doc_id, c.idx, c.page, c.text, chunk_concept.get(c.idx), to_blob(vectors[c.idx]))
+                for c in chunks
+            ],
         )
-
-    _job_update(job_id, "indexing", 0.5, "Indexing passages for semantic search…")
-    get_store().add(
-        chunk_ids,
-        vectors.tolist(),
-        texts,
-        [
-            {"document_id": doc_id, "concept_id": chunk_concept.get(c.idx, ""), "page": c.page, "idx": c.idx}
-            for c in chunks
-        ],
-    )
+    _job_update(job_id, "indexing", 0.5, "Indexed passages for semantic search.")
 
     # ── Cards ─────────────────────────────────────────────────────────────
     total = len(drafts)
@@ -222,6 +223,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
                 card_rows.append(
                     (
                         new_id("card"),
+                        uid(),
                         cid,
                         doc_id,
                         card.kind,
@@ -235,8 +237,8 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
                 )
     with get_conn() as conn:
         conn.executemany(
-            """INSERT INTO cards (id, concept_id, document_id, kind, prompt, answer, explanation,
-                   source_chunk_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO cards (id, user_id, concept_id, document_id, kind, prompt, answer, explanation,
+                   source_chunk_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             card_rows,
         )
 
@@ -249,6 +251,7 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
                WHERE id = ?""",
             (len(chunks), len(drafts), len(card_rows), doc_id),
         )
+    bump_library_version()
     _job_update(
         job_id,
         "done",
@@ -259,33 +262,32 @@ def _ingest(job_id: str, doc_id: str, source: Dict[str, Any]) -> None:
 
 
 def rebuild_links() -> int:
-    """Recompute concept edges across the whole library."""
+    """Recompute concept edges across the user's whole library."""
+    user_id = uid()
     with get_conn() as conn:
-        rows = conn.execute("SELECT id, document_id, position, centroid FROM concepts").fetchall()
+        rows = conn.execute(
+            "SELECT id, document_id, position, centroid FROM concepts WHERE user_id = ?", (user_id,)
+        ).fetchall()
         nodes = [
             ConceptNode(r["id"], r["document_id"], r["position"], np.array(jloads(r["centroid"], []), dtype=np.float32))
             for r in rows
             if jloads(r["centroid"], [])
         ]
         edges = build_edges(nodes)
-        conn.execute("DELETE FROM concept_links")
+        conn.execute("DELETE FROM concept_links WHERE user_id = ?", (user_id,))
         conn.executemany(
-            "INSERT OR REPLACE INTO concept_links (source, target, weight, kind) VALUES (?, ?, ?, ?)",
-            edges,
+            "INSERT INTO concept_links (source, target, user_id, weight, kind) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT (source, target) DO NOTHING",
+            [(src, tgt, user_id, w, kind) for src, tgt, w, kind in edges],
         )
     return len(edges)
 
 
 def delete_document(doc_id: str) -> bool:
-    from retrieval.vector_store import get_store
-
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        cur = conn.execute("DELETE FROM documents WHERE id = ? AND user_id = ?", (doc_id, uid()))
         if cur.rowcount == 0:
             return False
-    try:
-        get_store().delete_document(doc_id)
-    except Exception:  # noqa: BLE001 — vector cleanup is best-effort
-        traceback.print_exc()
     rebuild_links()
+    bump_library_version()
     return True
