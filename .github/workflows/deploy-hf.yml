@@ -64,7 +64,12 @@ jobs:
             -H "Authorization: Bearer ${HF_TOKEN}" -H "Content-Type: application/json" \
             -d '{"flavor": "cpu-basic"}' "https://huggingface.co/api/spaces/${HF_SPACE}/hardware")
           echo "hardware request: HTTP $CODE"; cat hw.json; echo
-          if [ "$CODE" -ge 400 ]; then
+          if [ "$CODE" = "402" ]; then
+            echo "This Space was created on paid/ZeroGPU hardware, and Hugging Face only lets PRO"
+            echo "accounts move it to CPU basic. Delete the Space and create it again with"
+            echo "SDK = Docker and hardware = CPU basic (free); see docs/DEPLOY_HF.md."
+            exit 1
+          elif [ "$CODE" -ge 400 ]; then
             echo "Could not set the hardware. Give HF_TOKEN write access to this Space's settings,"
             echo "or pick 'CPU basic' under Settings -> Space hardware on Hugging Face."
             exit 1

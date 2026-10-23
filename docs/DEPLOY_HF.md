@@ -39,6 +39,8 @@ NotForgotten creates its tables automatically on first start.
    - **Visibility:** **Public**. Students can't open a private Space without a Hugging Face login.
 3. Click **Create Space**. Leave it empty; GitHub will fill it.
 
+> **Pick Docker and CPU basic when you create the Space.** If a Space is created with the Gradio SDK it may default to **ZeroGPU** hardware, and Hugging Face only lets PRO accounts switch it back to CPU basic. The deploy then fails with `CONFIG_ERROR: ZeroGPU is only available on Gradio SDK`. The fix is to delete the Space (**Settings → Delete this Space**) and create it again with the settings above.
+
 ## Step 3: Add the app's settings to the Space
 
 In the Space, open **Settings → Variables and secrets**.
