@@ -10,7 +10,6 @@ services:
       # Container paths win over any local-dev paths in .env.
       CORS_ORIGINS: http://localhost:8080
       DB_PATH: /data/memory.db
-      CHROMA_DB_DIR: /data/chroma
       HF_HOME: /data/hf_cache
       SENTENCE_TRANSFORMERS_HOME: /opt/models
     volumes:

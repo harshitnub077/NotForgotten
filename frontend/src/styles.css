@@ -2334,3 +2334,62 @@ input[type='range'] {
     padding: 0 12px;
   }
 }
+
+/* ─── Accounts ───────────────────────────────────────────── */
+
+.rail-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--sign-ink);
+  padding-top: 12px;
+}
+.rail-user .icon-btn {
+  border-color: var(--sign-ink);
+  margin-left: auto;
+  flex: none;
+}
+.rail-email {
+  display: block;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.auth-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+  gap: clamp(24px, 5vw, 80px);
+  align-items: center;
+  padding: clamp(28px, 6vw, 88px) var(--band-pad);
+}
+.auth-form {
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+@media (max-width: 860px) {
+  .auth-grid {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+}
+.land-login {
+  font-weight: 700;
+  margin-right: 6px;
+}
+.account-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.danger-zone {
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 18px;
+}

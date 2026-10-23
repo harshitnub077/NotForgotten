@@ -11,7 +11,6 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DB_PATH=/data/memory.db \
-    CHROMA_DB_DIR=/data/chroma \
     HF_HOME=/data/hf_cache \
     SENTENCE_TRANSFORMERS_HOME=/data/hf_cache
 WORKDIR /app

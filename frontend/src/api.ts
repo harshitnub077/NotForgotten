@@ -296,6 +296,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: init?.body instanceof FormData ? init.headers : { 'Content-Type': 'application/json', ...init?.headers },
   });
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    // Session expired or signed out elsewhere: let the app route to log-in.
+    window.dispatchEvent(new Event('nf:unauthorized'));
+  }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try {
@@ -313,7 +317,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const tz = () => -new Date().getTimezoneOffset();
 const body = (data: unknown) => JSON.stringify(data);
 
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  created_at: string;
+}
+
 export const api = {
+  authConfig: () => request<{ invite_required: boolean }>('/auth/config'),
+  me: () => request<{ user: User }>('/auth/me'),
+  signup: (data: { email: string; password: string; name: string; invite_code?: string }) =>
+    request<{ user: User }>('/auth/signup', { method: 'POST', body: body(data) }),
+  login: (email: string, password: string) =>
+    request<{ user: User }>('/auth/login', { method: 'POST', body: body({ email, password }) }),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  updateProfile: (name: string) => request<{ user: User }>('/auth/me', { method: 'PATCH', body: body({ name }) }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean }>('/auth/password', { method: 'POST', body: body({ current_password, new_password }) }),
+  deleteAccount: (password: string) => request<{ deleted: boolean }>('/auth/delete', { method: 'POST', body: body({ password }) }),
+  exportData: () => request<Record<string, unknown>>('/auth/export'),
   health: () => request<{ status: string; llm: Settings['llm'] }>('/health'),
   today: () => request<Today>(`/today?tz_offset=${tz()}`),
   insights: () => request<Insights>(`/insights?tz_offset=${tz()}`),
