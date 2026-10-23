@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core import analytics, settings
+from core.auth import uid
 from core.memory import card_view, concept_stats, fetch_cards, submit_review, to_memory
 from core.util import jloads, new_id, parse_dt, utcnow
 from memory.planner import build_queue
@@ -46,7 +47,7 @@ def queue(
         params.append(document_id)
     if exam_id:
         with get_conn() as conn:
-            exam = conn.execute("SELECT * FROM exams WHERE id = ?", (exam_id,)).fetchone()
+            exam = conn.execute("SELECT * FROM exams WHERE id = ? AND user_id = ?", (exam_id, uid())).fetchone()
         if exam is None:
             raise HTTPException(status_code=404, detail="Exam not found")
         docs = jloads(exam["document_ids"], [])
@@ -102,8 +103,8 @@ def _new_today() -> int:
     since = (utcnow() - timedelta(hours=24)).isoformat()
     with get_conn() as conn:
         return conn.execute(
-            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE stability_before IS NULL AND reviewed_at >= ?",
-            (since,),
+            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE user_id = ? AND stability_before IS NULL AND reviewed_at >= ?",
+            (uid(), since),
         ).fetchone()[0]
 
 
@@ -131,7 +132,7 @@ def grade(body: GradeIn) -> dict:
     from nlp.grader import grade as grade_answer
 
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM cards WHERE id = ?", (body.card_id,)).fetchone()
+        row = conn.execute("SELECT * FROM cards WHERE id = ? AND user_id = ?", (body.card_id, uid())).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Card not found")
     result = grade_answer(
@@ -172,7 +173,9 @@ def answer(body: AnswerIn) -> dict:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Card not found") from exc
     with get_conn() as conn:
-        concept_id = conn.execute("SELECT concept_id FROM cards WHERE id = ?", (body.card_id,)).fetchone()[0]
+        concept_id = conn.execute(
+            "SELECT concept_id FROM cards WHERE id = ? AND user_id = ?", (body.card_id, uid())
+        ).fetchone()[0]
     stats = concept_stats(fsrs, rows=fetch_cards("concept_id = ?", (concept_id,)))
     result["concept_retention"] = (stats.get(concept_id) or {}).get("retention")
     return result
@@ -183,8 +186,8 @@ def session_summary(session_id: str) -> dict:
     with get_conn() as conn:
         rows = conn.execute(
             """SELECT r.*, c.prompt, c.concept_id FROM reviews r JOIN cards c ON c.id = r.card_id
-               WHERE r.session_id = ? ORDER BY r.reviewed_at""",
-            (session_id,),
+               WHERE r.session_id = ? AND r.user_id = ? ORDER BY r.reviewed_at""",
+            (session_id, uid()),
         ).fetchall()
     if not rows:
         return {"session_id": session_id, "reviews": 0}

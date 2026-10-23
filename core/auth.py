@@ -1,8 +1,8 @@
 """
 Accounts and sessions.
 
-Passwords: scrypt (stdlib, memory-hard), per-user random salt, constant-time
-comparison. Sessions: a random 256-bit token is sent to the browser in an
+Passwords: scrypt (stdlib, memory-hard) or PBKDF2-SHA256 where the Python
+build lacks scrypt; per-user random salt, constant-time comparison. Sessions: a random 256-bit token is sent to the browser in an
 HttpOnly cookie; only its SHA-256 is stored, so a leaked database can't be
 replayed as live sessions. The signed-in user travels through a request in a
 context variable, so data-access code scopes every query with `uid()`.
@@ -70,24 +70,33 @@ def bump_library_version(user_id: Optional[str] = None) -> None:
 # ---------------------------------------------------------------------------
 
 
+_PBKDF2_ITERATIONS = 600_000  # OWASP 2023 guidance for PBKDF2-SHA256
+_HAS_SCRYPT = hasattr(hashlib, "scrypt")  # missing on LibreSSL-built Pythons (macOS system 3.9)
+
+
 def hash_password(password: str) -> str:
     salt = os.urandom(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT)
-    return "scrypt${n}${r}${p}${salt}${hash}".format(
-        n=_SCRYPT["n"],
-        r=_SCRYPT["r"],
-        p=_SCRYPT["p"],
-        salt=base64.b64encode(salt).decode(),
-        hash=base64.b64encode(digest).decode(),
-    )
+    b64 = lambda b: base64.b64encode(b).decode()  # noqa: E731
+    if _HAS_SCRYPT:
+        digest = hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT)
+        return f"scrypt${_SCRYPT['n']}${_SCRYPT['r']}${_SCRYPT['p']}${b64(salt)}${b64(digest)}"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${b64(salt)}${b64(digest)}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        _, n, r, p, salt, digest = stored.split("$")
-        candidate = hashlib.scrypt(
-            password.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p), dklen=32
-        )
+        parts = stored.split("$")
+        if parts[0] == "scrypt" and _HAS_SCRYPT:
+            _, n, r, p, salt, digest = parts
+            candidate = hashlib.scrypt(
+                password.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p), dklen=32
+            )
+        elif parts[0] == "pbkdf2_sha256":
+            _, iterations, salt, digest = parts
+            candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), base64.b64decode(salt), int(iterations))
+        else:
+            return False
         return hmac.compare_digest(candidate, base64.b64decode(digest))
     except (ValueError, TypeError):
         return False

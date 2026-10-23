@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core import settings
+from core.auth import uid
 from core.memory import card_view
 from core.util import iso, new_id, utcnow
 from memory.schema import get_conn, init_db
@@ -17,7 +18,7 @@ router = APIRouter(tags=["cards"])
 @router.get("/cards")
 def list_cards(concept_id: Optional[str] = None, document_id: Optional[str] = None, include_suspended: bool = True) -> List[dict]:
     init_db()
-    clauses, params = [], []
+    clauses, params = ["user_id = ?"], [uid()]
     if concept_id:
         clauses.append("concept_id = ?")
         params.append(concept_id)
@@ -26,7 +27,7 @@ def list_cards(concept_id: Optional[str] = None, document_id: Optional[str] = No
         params.append(document_id)
     if not include_suspended:
         clauses.append("suspended = 0")
-    sql = "SELECT * FROM cards" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY created_at"
+    sql = "SELECT * FROM cards WHERE " + " AND ".join(clauses) + " ORDER BY created_at"
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
     fsrs, now = settings.get_fsrs(), utcnow()
@@ -36,7 +37,7 @@ def list_cards(concept_id: Optional[str] = None, document_id: Optional[str] = No
 @router.get("/cards/{card_id}")
 def get_card(card_id: str) -> dict:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
+        row = conn.execute("SELECT * FROM cards WHERE id = ? AND user_id = ?", (card_id, uid())).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return card_view(row, settings.get_fsrs(), utcnow())
@@ -53,14 +54,16 @@ class CardIn(BaseModel):
 @router.post("/cards")
 def create_card(body: CardIn) -> dict:
     with get_conn() as conn:
-        c = conn.execute("SELECT document_id FROM concepts WHERE id = ?", (body.concept_id,)).fetchone()
+        c = conn.execute(
+            "SELECT document_id FROM concepts WHERE id = ? AND user_id = ?", (body.concept_id, uid())
+        ).fetchone()
         if c is None:
             raise HTTPException(status_code=404, detail="Concept not found")
         cid = new_id("card")
         conn.execute(
-            """INSERT INTO cards (id, concept_id, document_id, kind, prompt, answer, explanation, origin, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)""",
-            (cid, body.concept_id, c["document_id"], body.kind, body.prompt, body.answer, body.explanation, iso(utcnow())),
+            """INSERT INTO cards (id, user_id, concept_id, document_id, kind, prompt, answer, explanation, origin, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)""",
+            (cid, uid(), body.concept_id, c["document_id"], body.kind, body.prompt, body.answer, body.explanation, iso(utcnow())),
         )
     return {"id": cid}
 
@@ -81,7 +84,7 @@ def update_card(card_id: str, patch: CardPatch) -> dict:
         values["suspended"] = int(values["suspended"])
     sets = ", ".join(f"{k} = ?" for k in values)
     with get_conn() as conn:
-        cur = conn.execute(f"UPDATE cards SET {sets} WHERE id = ?", (*values.values(), card_id))
+        cur = conn.execute(f"UPDATE cards SET {sets} WHERE id = ? AND user_id = ?", (*values.values(), card_id, uid()))
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Card not found")
     return {"updated": cur.rowcount}
@@ -90,7 +93,7 @@ def update_card(card_id: str, patch: CardPatch) -> dict:
 @router.delete("/cards/{card_id}")
 def delete_card(card_id: str) -> dict:
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+        cur = conn.execute("DELETE FROM cards WHERE id = ? AND user_id = ?", (card_id, uid()))
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Card not found")
     return {"deleted": card_id}

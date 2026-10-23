@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core import analytics, settings
+from core.auth import uid
 from core.util import iso, jdumps, jloads, new_id, utcnow
 from memory.schema import get_conn
 
@@ -33,11 +34,11 @@ def knowledge_graph(days: float = 0.0) -> dict:
 
 def _concept_material(concept_id: str):
     with get_conn() as conn:
-        c = conn.execute("SELECT * FROM concepts WHERE id = ?", (concept_id,)).fetchone()
+        c = conn.execute("SELECT * FROM concepts WHERE id = ? AND user_id = ?", (concept_id, uid())).fetchone()
         if c is None:
             raise HTTPException(status_code=404, detail="Concept not found")
         chunks = conn.execute(
-            "SELECT id, text FROM chunks WHERE concept_id = ? ORDER BY idx", (concept_id,)
+            "SELECT id, text FROM chunks WHERE concept_id = ? AND user_id = ? ORDER BY idx", (concept_id, uid())
         ).fetchall()
     return c, chunks
 
@@ -61,8 +62,9 @@ def feynman(concept_id: str, body: FeynmanIn) -> dict:
     payload = result.__dict__
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO feynman_attempts (id, concept_id, explanation, score, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (new_id("fey"), concept_id, body.explanation, result.score, jdumps(payload), iso(utcnow())),
+            "INSERT INTO feynman_attempts (id, user_id, concept_id, explanation, score, result, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (new_id("fey"), uid(), concept_id, body.explanation, result.score, jdumps(payload), iso(utcnow())),
         )
     return payload
 
@@ -77,7 +79,12 @@ def generate_more(concept_id: str, body: GenerateIn) -> dict:
 
     c, chunks = _concept_material(concept_id)
     with get_conn() as conn:
-        existing = {r["prompt"] for r in conn.execute("SELECT prompt FROM cards WHERE concept_id = ?", (concept_id,))}
+        existing = {
+            r["prompt"]
+            for r in conn.execute(
+                "SELECT prompt FROM cards WHERE concept_id = ? AND user_id = ?", (concept_id, uid())
+            ).fetchall()
+        }
     # Rotate through passages so new cards cover material the old ones didn't.
     offset = len(existing) % max(len(chunks), 1)
     window = (list(chunks[offset:]) + list(chunks[:offset]))[:4]
@@ -94,6 +101,7 @@ def generate_more(concept_id: str, body: GenerateIn) -> dict:
     rows = [
         (
             new_id("card"),
+            uid(),
             concept_id,
             c["document_id"],
             d.kind,
@@ -108,8 +116,8 @@ def generate_more(concept_id: str, body: GenerateIn) -> dict:
     ]
     with get_conn() as conn:
         conn.executemany(
-            """INSERT INTO cards (id, concept_id, document_id, kind, prompt, answer, explanation,
-                   source_chunk_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO cards (id, user_id, concept_id, document_id, kind, prompt, answer, explanation,
+                   source_chunk_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.execute(

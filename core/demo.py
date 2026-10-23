@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from core import settings
+from core.auth import reset_current_user, set_current_user, uid
 from core.memory import submit_review
 from core.util import iso, new_id, parse_dt, utcnow
 from ingestion import pipeline
@@ -23,7 +24,8 @@ from memory.schema import get_conn, init_db
 
 DEMO_DIR = Path(__file__).resolve().parent.parent / "assets" / "demo"
 HISTORY_DAYS = 60
-_lock = threading.Lock()
+_busy: set = set()  # users whose demo library is being prepared
+_busy_lock = threading.Lock()
 
 
 def _learner() -> FSRS:
@@ -34,25 +36,35 @@ def _learner() -> FSRS:
 
 
 def load_demo() -> Dict[str, str]:
-    if not _lock.acquire(blocking=False):
-        raise RuntimeError("The demo library is already being prepared.")
-    init_db()
-    with get_conn() as conn:
-        if conn.execute("SELECT COUNT(*) FROM documents WHERE is_demo = 1").fetchone()[0]:
-            _lock.release()
-            raise RuntimeError("Demo library is already loaded.")
-        job_id = new_id("job")
-        now = iso(utcnow())
-        conn.execute(
-            "INSERT INTO jobs (id, document_id, status, stage, progress, message, created_at, updated_at) "
-            "VALUES (?, NULL, 'running', 'queued', 0, 'Preparing the demo library…', ?, ?)",
-            (job_id, now, now),
-        )
-    threading.Thread(target=_build, args=(job_id,), daemon=True).start()
+    user_id = uid()
+    with _busy_lock:
+        if user_id in _busy:
+            raise RuntimeError("The demo library is already being prepared.")
+        _busy.add(user_id)
+    try:
+        init_db()
+        with get_conn() as conn:
+            if conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE user_id = ? AND is_demo = 1", (user_id,)
+            ).fetchone()[0]:
+                raise RuntimeError("Demo library is already loaded.")
+            job_id = new_id("job")
+            now = iso(utcnow())
+            conn.execute(
+                "INSERT INTO jobs (id, user_id, document_id, status, stage, progress, message, created_at, updated_at) "
+                "VALUES (?, ?, NULL, 'running', 'queued', 0, 'Preparing the demo library…', ?, ?)",
+                (job_id, user_id, now, now),
+            )
+    except Exception:
+        with _busy_lock:
+            _busy.discard(user_id)
+        raise
+    threading.Thread(target=_build, args=(user_id, job_id), daemon=True).start()
     return {"job_id": job_id}
 
 
-def _build(job_id: str) -> None:
+def _build(user_id: str, job_id: str) -> None:
+    token = set_current_user(user_id)  # threads don't inherit the request context
     try:
         files = sorted(DEMO_DIR.glob("*.md"))
         doc_ids: List[str] = []
@@ -70,7 +82,9 @@ def _build(job_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         pipeline._job_update(job_id, "failed", 1.0, str(exc)[:300], status="failed")
     finally:
-        _lock.release()
+        reset_current_user(token)
+        with _busy_lock:
+            _busy.discard(user_id)
 
 
 def simulate_history(doc_ids: List[str], seed: int = 42) -> int:
@@ -81,8 +95,8 @@ def simulate_history(doc_ids: List[str], seed: int = 42) -> int:
     marks = ",".join("?" * len(doc_ids))
     with get_conn() as conn:
         cards = conn.execute(
-            f"SELECT id, document_id FROM cards WHERE document_id IN ({marks}) ORDER BY created_at",
-            doc_ids,
+            f"SELECT id, document_id FROM cards WHERE user_id = ? AND document_id IN ({marks}) ORDER BY created_at",
+            (uid(), *doc_ids),
         ).fetchall()
 
     # Documents were "started" at different times; a few cards stay new. The
@@ -139,7 +153,10 @@ def simulate_history(doc_ids: List[str], seed: int = 42) -> int:
 def clear_demo() -> int:
     init_db()
     with get_conn() as conn:
-        ids = [r["id"] for r in conn.execute("SELECT id FROM documents WHERE is_demo = 1")]
+        ids = [
+            r["id"]
+            for r in conn.execute("SELECT id FROM documents WHERE user_id = ? AND is_demo = 1", (uid(),)).fetchall()
+        ]
     for doc_id in ids:
         pipeline.delete_document(doc_id)
     return len(ids)

@@ -13,6 +13,7 @@ import re
 import sqlite3
 import threading
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Generator, Iterable, Optional
 
@@ -285,11 +286,20 @@ def _pg_param(p: Any) -> Any:
     return bytes(p) if isinstance(p, (bytearray, memoryview)) else p
 
 
+def _pg_value(v: Any) -> Any:
+    """Match sqlite3's Python types: bytes for blobs, float for numerics."""
+    if isinstance(v, memoryview):
+        return bytes(v)
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
 def _pg_row_factory(cursor: Any):
     names = [c.name for c in cursor.description] if cursor.description else []
 
     def make(values: tuple) -> Row:
-        return Row(zip(names, (bytes(v) if isinstance(v, memoryview) else v for v in values)))
+        return Row(zip(names, (_pg_value(v) for v in values)))
 
     return make
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core import analytics
+from core.auth import uid
 from core.util import iso, jdumps, new_id, utcnow
 from memory.schema import get_conn
 
@@ -39,8 +40,8 @@ def create_exam(body: ExamIn) -> dict:
     exam_id = new_id("exam")
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO exams (id, name, exam_date, target, document_ids, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (exam_id, body.name, iso(when), body.target, jdumps(body.document_ids), iso(utcnow())),
+            "INSERT INTO exams (id, user_id, name, exam_date, target, document_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (exam_id, uid(), body.name, iso(when), body.target, jdumps(body.document_ids), iso(utcnow())),
         )
     return analytics.exam_plan(exam_id) or {}
 
@@ -56,7 +57,7 @@ def get_plan(exam_id: str) -> dict:
 @router.delete("/exams/{exam_id}")
 def delete_exam(exam_id: str) -> dict:
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
+        cur = conn.execute("DELETE FROM exams WHERE id = ? AND user_id = ?", (exam_id, uid()))
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Exam not found")
     return {"deleted": exam_id}
