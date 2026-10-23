@@ -93,7 +93,7 @@ knowledge_graph/  prerequisite propagation
 llm/        provider-agnostic client (Groq / OpenAI / Anthropic) with offline degradation
 ```
 
-Storage: SQLite (`data/memory.db`) locally, or hosted **Postgres** when `DATABASE_URL` is set. Passages, their embeddings, cards, reviews and accounts all live in that one database; semantic search is exact per-user cosine similarity over the stored embeddings (`all-MiniLM-L6-v2`), so there is no separate vector database to run. See [docs/DEPLOY.md](docs/DEPLOY.md) to host a beta.
+Storage: SQLite (`data/memory.db`) locally, or hosted **Postgres** when `DATABASE_URL` is set. Passages, their embeddings, cards, reviews and accounts all live in that one database; semantic search is exact per-user cosine similarity over the stored embeddings (`all-MiniLM-L6-v2`), so there is no separate vector database to run. See [docs/DEPLOY_HF.md](docs/DEPLOY_HF.md) to host a free beta (Hugging Face Space + Neon), or [docs/DEPLOY.md](docs/DEPLOY.md) for other hosts.
 
 ---
 

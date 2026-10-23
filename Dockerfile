@@ -31,10 +31,18 @@ COPY retrieval ./retrieval
 COPY assets ./assets
 COPY --from=web /web/dist ./frontend/dist
 
-# Bake the embedding model into the image so first start is instant and offline.
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', cache_folder='/opt/models')"
-ENV SENTENCE_TRANSFORMERS_HOME=/opt/models
+# Bake the embedding model and tokenizer into the image so first start is
+# instant and needs no downloads.
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', cache_folder='/opt/models')" \
+ && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" \
+ && chmod -R a+rX /opt/models /opt/tiktoken
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/models \
+    HF_HUB_OFFLINE=1
 
+# Hosts like Hugging Face Spaces run the container as a non-root user (uid
+# 1000): keep the data directory writable for SQLite and temp uploads.
+RUN mkdir -p /data && chmod 777 /data
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"

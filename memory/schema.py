@@ -312,11 +312,17 @@ def _get_pool():
 
             url = database_url()
             assert url is not None
+            # Serverless Postgres (Neon) suspends when idle and drops sockets:
+            # validate connections on checkout and recycle idle ones early.
             _pool = ConnectionPool(
                 url,
                 min_size=1,
                 max_size=int(os.getenv("DB_POOL_SIZE", "10")),
-                kwargs={"row_factory": _pg_row_factory, "autocommit": False},
+                # No server-side prepared statements: they break behind
+                # transaction-mode poolers such as Neon's PgBouncer endpoint.
+                kwargs={"row_factory": _pg_row_factory, "autocommit": False, "prepare_threshold": None},
+                check=ConnectionPool.check_connection,
+                max_idle=240,
                 open=True,
             )
         return _pool

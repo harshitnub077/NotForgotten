@@ -1,0 +1,94 @@
+name: Deploy to Hugging Face
+
+# Every push to main publishes a snapshot of the app to a Hugging Face Docker
+# Space, which rebuilds and serves it. Configure once (see docs/DEPLOY_HF.md):
+#   repository variable  HF_SPACE  e.g. "your-username/notforgotten"
+#   repository secret    HF_TOKEN  a Hugging Face token with write access
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hf
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # Skipped until the Space is configured, so CI stays green before setup.
+    if: ${{ vars.HF_SPACE != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      HF_SPACE: ${{ vars.HF_SPACE }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Space snapshot
+        run: |
+          set -euo pipefail
+          SPACE_DIR="$RUNNER_TEMP/space"
+          mkdir -p "$SPACE_DIR"
+          git archive HEAD | tar -x -C "$SPACE_DIR"
+          cd "$SPACE_DIR"
+          # The Space needs only what the Docker image builds from.
+          rm -rf .github .impeccable .claude tests docs frontend-test activity.txt
+          # Hugging Face reads the Space's settings from README front matter.
+          {
+            printf -- '---\n'
+            printf 'title: NotForgotten\n'
+            printf 'emoji: 🧠\n'
+            printf 'colorFrom: yellow\n'
+            printf 'colorTo: gray\n'
+            printf 'sdk: docker\n'
+            printf 'app_port: 8080\n'
+            printf 'pinned: false\n'
+            printf 'short_description: Spaced-repetition study app that plans to your exam\n'
+            printf -- '---\n\n'
+            cat README.md
+          } > README.space.md
+          mv README.space.md README.md
+          # Git pushes to the Hub reject binary files; fail early with a clear message.
+          BINARIES=$(find . -type f -not -path './.git/*' -exec file --mime {} + | grep 'charset=binary' || true)
+          if [ -n "$BINARIES" ]; then echo "Binary files would be rejected by the Hub:"; echo "$BINARIES"; exit 1; fi
+          echo "SPACE_DIR=$SPACE_DIR" >> "$GITHUB_ENV"
+
+      - name: Push to the Space
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN}" ]; then echo "Add the HF_TOKEN repository secret first."; exit 1; fi
+          cd "$SPACE_DIR"
+          git init -q -b main
+          git config user.name "notforgotten-deploy"
+          git config user.email "deploy@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::7} from ${GITHUB_REPOSITORY}"
+          OWNER="${HF_SPACE%%/*}"
+          git push --force -q "https://${OWNER}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main
+
+      - name: Wait for the Space to build and answer
+        run: |
+          set -euo pipefail
+          # Space URL: owner-name.hf.space, lowercased, '.' and '_' become '-'.
+          SUB=$(echo "${HF_SPACE/\//-}" | tr '[:upper:]' '[:lower:]' | tr '._' '--')
+          URL="https://${SUB}.hf.space"
+          echo "Space URL: $URL"
+          for i in $(seq 1 70); do
+            STAGE=$(curl -s -H "Authorization: Bearer ${HF_TOKEN}" \
+              "https://huggingface.co/api/spaces/${HF_SPACE}/runtime" | python3 -c "import json,sys; print(json.load(sys.stdin).get('stage','?'))" || echo "?")
+            echo "stage: $STAGE"
+            case "$STAGE" in
+              RUNNING)
+                if curl -sf "$URL/api/health" > /dev/null; then
+                  echo "Live at $URL"
+                  echo "### Live at $URL" >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi ;;
+              BUILD_ERROR|RUNTIME_ERROR|CONFIG_ERROR)
+                echo "The Space failed ($STAGE). Open https://huggingface.co/spaces/${HF_SPACE}?logs=build"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "Timed out waiting for the Space; check https://huggingface.co/spaces/${HF_SPACE}"
+          exit 1
