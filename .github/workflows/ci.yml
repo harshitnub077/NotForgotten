@@ -63,7 +63,19 @@ jobs:
         run: docker build -t notforgotten:ci .
       - name: Smoke test
         run: |
-          docker run -d --name nf -p 8080:8080 -e NOTFORGOTTEN_OFFLINE=1 notforgotten:ci
+          # Run as uid 1000, like Hugging Face Spaces, to catch permission problems.
+          docker run -d --name nf --user 1000 -p 8080:8080 -e NOTFORGOTTEN_OFFLINE=1 notforgotten:ci
           for i in $(seq 1 60); do curl -sf localhost:8080/api/health && break; sleep 2; done
           curl -sf localhost:8080/api/health
           curl -sf localhost:8080/ | grep -q "NotForgotten"
+          # Sign up and import a note end to end inside the container.
+          curl -sf -c jar -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"ci-password-1","name":"CI"}' localhost:8080/api/auth/signup
+          python3 -c "import json; print(json.dumps({'title': 'Cells', 'text': open('assets/demo/cell-energy.md').read()}))" > note.json
+          JOB=$(curl -sf -b jar -H 'Content-Type: application/json' -d @note.json localhost:8080/api/documents/text \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
+          for i in $(seq 1 90); do
+            STATUS=$(curl -sf -b jar localhost:8080/api/jobs/$JOB | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
+            [ "$STATUS" != "running" ] && break; sleep 2
+          done
+          echo "import status: $STATUS"; [ "$STATUS" = "done" ] || (docker logs nf; exit 1)

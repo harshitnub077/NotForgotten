@@ -1,5 +1,7 @@
 # Deploying NotForgotten for beta students
 
+> **Fastest free option:** [Hugging Face Space + Neon](DEPLOY_HF.md), step by step, with automatic redeploys from GitHub.
+
 NotForgotten runs as **one container** (API + web app on port 8080) plus **one Postgres database**. Passages, embeddings, cards, reviews and accounts all live in Postgres, so the app server is stateless. You can redeploy or scale it without losing data.
 
 ## 1. Create the database
