@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart3,
@@ -12,8 +12,10 @@ import {
   Sun,
   SunMoon,
   Repeat2,
+  LogOut,
 } from 'lucide-react';
 import { api, type Today as TodayData } from './api';
+import { AuthProvider, useAuth } from './auth';
 import { Picto, Skeleton, ToastProvider, useTheme } from './ui';
 
 const Today = lazy(() => import('./pages/Today'));
@@ -27,6 +29,7 @@ const Insights = lazy(() => import('./pages/Insights'));
 const Exams = lazy(() => import('./pages/Exams'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Landing = lazy(() => import('./pages/Landing'));
+const AuthPage = lazy(() => import('./pages/AuthPage'));
 
 const NAV = [
   { to: '/', label: 'Today', hint: 'What to study next', icon: ArrowRight, short: 'Today' },
@@ -50,6 +53,7 @@ function useQueueCount() {
 
 function Rail() {
   const count = useQueueCount();
+  const { user, logout } = useAuth();
   const [theme, setTheme] = useTheme();
   const [llm, setLlm] = useState<string>('Checking AI…');
   useEffect(() => {
@@ -109,6 +113,17 @@ function Rail() {
         <div className="rail-foot-row">
           <span className={`dot${llm.startsWith('AI:') ? ' live' : ''}`} /> {llm}
         </div>
+        {user && (
+          <div className="rail-user">
+            <span style={{ minWidth: 0 }}>
+              <b style={{ display: 'block' }}>{user.name || 'Your account'}</b>
+              <span className="rail-email">{user.email}</span>
+            </span>
+            <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out">
+              <LogOut size={16} />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -131,7 +146,9 @@ function TabBar() {
 
 function Shell() {
   const location = useLocation();
-  const bare = location.pathname === '/welcome';
+  const { user, loading } = useAuth();
+  const PUBLIC = ['/welcome', '/login', '/signup'];
+  const bare = PUBLIC.includes(location.pathname);
   const focus = location.pathname === '/review'; // review sessions hide the phone tab bar
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -158,12 +175,24 @@ function Shell() {
         <Route path="/exams" element={<Exams />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/welcome" element={<Landing />} />
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage mode="login" />} />
+        <Route path="/signup" element={user ? <Navigate to="/" replace /> : <AuthPage mode="signup" />} />
         <Route path="*" element={<Today />} />
       </Routes>
     </Suspense>
   );
 
   if (bare) return routes;
+  if (loading)
+    return (
+      <div className="page">
+        <Skeleton h={160} />
+      </div>
+    );
+  if (!user) {
+    const next = location.pathname + location.search;
+    return <Navigate to={`/login${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`} replace />;
+  }
   return (
     <div className="shell">
       <Rail />
@@ -178,9 +207,11 @@ function Shell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ToastProvider>
-        <Shell />
-      </ToastProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <Shell />
+        </ToastProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

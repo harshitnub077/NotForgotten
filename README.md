@@ -23,6 +23,8 @@ It is not another flashcard app. The unit of memory is the **concept**: concepts
 | **Insights** | Year heatmap, true retention, keep-vs-stop forecast, workload forecast, memory-strength distribution, interactive forgetting-curve playground. |
 | **Personal forgetting curve** | One click fits FSRS parameters to your own review history (regularised maximum likelihood). |
 
+Each student has a **private account**: sign up, log in from any device, and their library, review history and exam plans sync through a hosted Postgres database. Data export and account deletion are built in.
+
 Everything works **without an API key**. An LLM (Groq, OpenAI or Anthropic) makes questions, grading and tutoring richer.
 
 ---
@@ -91,7 +93,7 @@ knowledge_graph/  prerequisite propagation
 llm/        provider-agnostic client (Groq / OpenAI / Anthropic) with offline degradation
 ```
 
-Storage is local: SQLite (`data/memory.db`), ChromaDB (`data/chroma`), and the `all-MiniLM-L6-v2` embedding model (`data/hf_cache`).
+Storage: SQLite (`data/memory.db`) locally, or hosted **Postgres** when `DATABASE_URL` is set. Passages, their embeddings, cards, reviews and accounts all live in that one database; semantic search is exact per-user cosine similarity over the stored embeddings (`all-MiniLM-L6-v2`), so there is no separate vector database to run. See [docs/DEPLOY.md](docs/DEPLOY.md) to host a beta.
 
 ---
 
@@ -131,7 +133,7 @@ docker compose up --build
 
 Then open http://localhost:8080. The image bakes in the embedding model and serves the API and the web app on one port; your library lives in the `notforgotten-data` volume. Put an LLM key in `.env` to enable AI features.
 
-> NotForgotten is single-user today: anyone who can reach the server can use the library. Put it behind authentication (or keep it on localhost) before exposing it to the internet.
+> For a public deployment set `DATABASE_URL`, `COOKIE_SECURE=1` and `CORS_ORIGINS`, and optionally `BETA_INVITE_CODES`. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Tests
 
@@ -139,11 +141,12 @@ Then open http://localhost:8080. The image bakes in the embedding model and serv
 .venv/bin/python -m pytest
 ```
 
-98 tests cover the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
+108 tests (run on both SQLite and Postgres in CI) cover accounts and cross-user isolation, the FSRS model (curve inversion, closed-form integrals vs numeric), planning, calibration, the optimizer recovering a synthetic learner, clustering, card generation, grading, propagation, retrieval, extraction, and a full offline API learning loop.
 
 ## Roadmap
 
-- Accounts, sync and mobile apps (PWA first)
+- Password reset by email; Google sign-in
+- Mobile app (PWA first) with study reminders
 - Image occlusion for diagrams; OCR for scanned PDFs
 - Spaced *interleaved problem practice* for maths and physics
 - Shared class decks for teachers, with cohort analytics

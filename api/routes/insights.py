@@ -6,6 +6,7 @@ from collections import defaultdict
 from fastapi import APIRouter
 
 from core import analytics, settings
+from core.auth import uid
 from core.util import iso, parse_dt, utcnow
 from memory.optimizer import fit
 from memory.schema import get_conn
@@ -22,7 +23,10 @@ def insights(tz_offset: int = 0) -> dict:
 def optimize() -> dict:
     """Fit FSRS parameters to this learner's own review history."""
     with get_conn() as conn:
-        rows = conn.execute("SELECT card_id, rating, reviewed_at FROM reviews ORDER BY card_id, reviewed_at").fetchall()
+        rows = conn.execute(
+            "SELECT card_id, rating, reviewed_at FROM reviews WHERE user_id = ? ORDER BY card_id, reviewed_at",
+            (uid(),),
+        ).fetchall()
     logs = defaultdict(list)
     for r in rows:
         logs[r["card_id"]].append((parse_dt(r["reviewed_at"]), int(r["rating"])))

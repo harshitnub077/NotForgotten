@@ -31,22 +31,26 @@ class FakeEmbedder:
         return self.embed_many([text])[0].tolist()
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
+def make_client(monkeypatch, email="student@example.com"):
     import ingestion.embedder as emb
-    import retrieval.vector_store as vs
 
     fake = FakeEmbedder()
     monkeypatch.setattr(emb, "get_embedder", lambda: fake)
     monkeypatch.setattr(emb, "embed_texts", lambda texts: fake.embed_many(list(texts)))
-    monkeypatch.setenv("CHROMA_DB_DIR", str(tmp_path / "chroma"))
-    monkeypatch.setattr(vs, "_store", None)
 
     from fastapi.testclient import TestClient
 
     from api.main import app
 
-    with TestClient(app) as c:
+    c = TestClient(app)
+    res = c.post("/api/auth/signup", json={"email": email, "password": "correct horse", "name": "Asha"})
+    assert res.status_code == 200, res.text
+    return c
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    with make_client(monkeypatch) as c:
         yield c
 
 

@@ -9,6 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from core.auth import uid
 from ingestion import pipeline
 from memory.schema import get_conn, init_db
 
@@ -26,7 +27,8 @@ def list_documents() -> List[dict]:
             """SELECT d.*,
                       (SELECT COUNT(*) FROM reviews r JOIN cards c ON c.id = r.card_id
                         WHERE c.document_id = d.id) AS review_count
-               FROM documents d ORDER BY d.created_at DESC"""
+               FROM documents d WHERE d.user_id = ? ORDER BY d.created_at DESC""",
+            (uid(),),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -36,7 +38,7 @@ def get_document(doc_id: str) -> dict:
     from core.analytics import concept_list
 
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        row = conn.execute("SELECT * FROM documents WHERE id = ? AND user_id = ?", (doc_id, uid())).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
     doc = dict(row)
@@ -117,7 +119,10 @@ def search(q: str, k: int = 8, document_id: Optional[str] = None) -> List[dict]:
     ranked = retrieve(q, top_k=min(max(k, 1), 25), document_ids=[document_id] if document_id else None)
     names = {}
     with get_conn() as conn:
-        for r in conn.execute("SELECT c.id, c.name, d.title FROM concepts c JOIN documents d ON d.id = c.document_id"):
+        for r in conn.execute(
+            "SELECT c.id, c.name, d.title FROM concepts c JOIN documents d ON d.id = c.document_id WHERE c.user_id = ?",
+            (uid(),),
+        ).fetchall():
             names[r["id"]] = (r["name"], r["title"])
     return [
         {

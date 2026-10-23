@@ -10,11 +10,12 @@ from core import analytics, settings
 from llm.client import get_llm
 
 router = APIRouter(tags=["system"])
+public = APIRouter(tags=["system"])
 
 
-@router.get("/health")
+@public.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "NotForgotten", "version": "2.0.0", "llm": get_llm().status()}
+    return {"status": "ok", "service": "NotForgotten", "version": "2.1.0", "llm": get_llm().status()}
 
 
 @router.get("/today")

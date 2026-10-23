@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from core import settings
+from core.auth import uid
 from core.memory import card_view, concept_stats, fetch_cards, to_memory
 from core.util import jloads, parse_dt, utcnow
 from knowledge_graph.propagation import effective_retention, weakest_foundations
@@ -25,7 +26,9 @@ def _concepts() -> Dict[str, Dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
             """SELECT c.id, c.name, c.summary, c.keywords, c.document_id, c.position, d.title AS document_title
-               FROM concepts c JOIN documents d ON d.id = c.document_id WHERE d.status = 'ready'"""
+               FROM concepts c JOIN documents d ON d.id = c.document_id
+               WHERE d.status = 'ready' AND c.user_id = ?""",
+            (uid(),),
         ).fetchall()
     return {
         r["id"]: {
@@ -45,14 +48,16 @@ def _edges() -> List[tuple]:
     with get_conn() as conn:
         return [
             (r["source"], r["target"], r["weight"], r["kind"])
-            for r in conn.execute("SELECT source, target, weight, kind FROM concept_links").fetchall()
+            for r in conn.execute(
+                "SELECT source, target, weight, kind FROM concept_links WHERE user_id = ?", (uid(),)
+            ).fetchall()
         ]
 
 
 def streak_info(tz_offset_min: int = 0, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or utcnow()
     with get_conn() as conn:
-        rows = conn.execute("SELECT reviewed_at FROM reviews").fetchall()
+        rows = conn.execute("SELECT reviewed_at FROM reviews WHERE user_id = ?", (uid(),)).fetchall()
     days = {_local_day(parse_dt(r["reviewed_at"]), tz_offset_min) for r in rows}  # type: ignore[arg-type]
     today = _local_day(now, tz_offset_min)
     cursor = datetime.fromisoformat(today).date()
@@ -74,8 +79,8 @@ def streak_info(tz_offset_min: int = 0, now: Optional[datetime] = None) -> Dict[
 def _new_cards_today() -> int:
     with get_conn() as conn:
         return conn.execute(
-            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE stability_before IS NULL AND reviewed_at >= ?",
-            ((utcnow() - timedelta(hours=24)).isoformat(),),
+            "SELECT COUNT(DISTINCT card_id) FROM reviews WHERE user_id = ? AND stability_before IS NULL AND reviewed_at >= ?",
+            (uid(), (utcnow() - timedelta(hours=24)).isoformat()),
         ).fetchone()[0]
 
 
@@ -84,8 +89,9 @@ def _avg_seconds() -> Dict[str, float]:
         row = conn.execute(
             """SELECT AVG(CASE WHEN stability_before IS NOT NULL THEN duration_ms END) AS rev,
                       AVG(CASE WHEN stability_before IS NULL THEN duration_ms END) AS new
-               FROM (SELECT * FROM reviews WHERE duration_ms BETWEEN 1000 AND 300000
-                     ORDER BY reviewed_at DESC LIMIT 500)"""
+               FROM (SELECT * FROM reviews WHERE user_id = ? AND duration_ms BETWEEN 1000 AND 300000
+                     ORDER BY reviewed_at DESC LIMIT 500) AS recent""",
+            (uid(),),
         ).fetchone()
     return {
         "review": (row["rev"] or 20_000) / 1000.0,
@@ -109,10 +115,12 @@ def today(tz_offset_min: int = 0) -> Dict[str, Any]:
     new_today = _new_cards_today()
     with get_conn() as conn:
         reviewed_today = conn.execute(
-            "SELECT COUNT(*) FROM reviews WHERE reviewed_at >= ?",
-            ((now - timedelta(hours=24)).isoformat(),),
+            "SELECT COUNT(*) FROM reviews WHERE user_id = ? AND reviewed_at >= ?",
+            (uid(), (now - timedelta(hours=24)).isoformat()),
         ).fetchone()[0]
-        docs = conn.execute("SELECT COUNT(*) FROM documents WHERE status = 'ready'").fetchone()[0]
+        docs = conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE user_id = ? AND status = 'ready'", (uid(),)
+        ).fetchone()[0]
 
     new_left = max(0, int(s["daily_new_limit"]) - new_today)
     queue = build_queue(fsrs, mems, now, max_new=new_left, review_seconds=secs["review"], new_seconds=secs["new"])
@@ -169,7 +177,8 @@ def insights(tz_offset_min: int = 0) -> Dict[str, Any]:
     with get_conn() as conn:
         reviews = conn.execute(
             "SELECT rating, confidence, elapsed_days, retrievability, duration_ms, reviewed_at, stability_before, score "
-            "FROM reviews ORDER BY reviewed_at"
+            "FROM reviews WHERE user_id = ? ORDER BY reviewed_at",
+            (uid(),),
         ).fetchall()
 
     per_day: Counter = Counter()
@@ -315,7 +324,7 @@ def concept_detail(concept_id: str) -> Optional[Dict[str, Any]]:
     rows = fetch_cards("concept_id = ?", (concept_id,))
     with get_conn() as conn:
         all_rows = conn.execute(
-            "SELECT * FROM cards WHERE concept_id = ? ORDER BY created_at", (concept_id,)
+            "SELECT * FROM cards WHERE concept_id = ? AND user_id = ? ORDER BY created_at", (concept_id, uid())
         ).fetchall()
     cards = [{**card_view(r, fsrs, now, with_preview=False), "suspended": bool(r["suspended"])} for r in all_rows]
     stats = concept_stats(fsrs, now)
@@ -350,11 +359,13 @@ def concept_detail(concept_id: str) -> Optional[Dict[str, Any]]:
 
     with get_conn() as conn:
         chunks = conn.execute(
-            "SELECT id, page, text FROM chunks WHERE concept_id = ? ORDER BY idx LIMIT 12", (concept_id,)
+            "SELECT id, page, text FROM chunks WHERE concept_id = ? AND user_id = ? ORDER BY idx LIMIT 12",
+            (concept_id, uid()),
         ).fetchall()
         attempts = conn.execute(
-            "SELECT id, score, result, created_at FROM feynman_attempts WHERE concept_id = ? ORDER BY created_at DESC LIMIT 5",
-            (concept_id,),
+            "SELECT id, score, result, created_at FROM feynman_attempts WHERE concept_id = ? AND user_id = ? "
+            "ORDER BY created_at DESC LIMIT 5",
+            (concept_id, uid()),
         ).fetchall()
     c["passages"] = [dict(r) for r in chunks]
     c["feynman"] = [{**dict(a), "result": jloads(a["result"], {})} for a in attempts]
@@ -370,7 +381,7 @@ def upcoming_exams() -> List[Dict[str, Any]]:
     init_db()
     now = utcnow()
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM exams ORDER BY exam_date").fetchall()
+        rows = conn.execute("SELECT * FROM exams WHERE user_id = ? ORDER BY exam_date", (uid(),)).fetchall()
     out = []
     for r in rows:
         when = parse_dt(r["exam_date"])
@@ -400,7 +411,7 @@ def exam_plan(exam_id: str) -> Optional[Dict[str, Any]]:
     from memory.planner import plan_exam
 
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM exams WHERE id = ?", (exam_id,)).fetchone()
+        row = conn.execute("SELECT * FROM exams WHERE id = ? AND user_id = ?", (exam_id, uid())).fetchone()
     if row is None:
         return None
     fsrs = settings.get_fsrs()

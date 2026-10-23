@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from core import analytics, settings
+from core.auth import uid
 from core.util import iso, new_id, utcnow
 from llm.client import LLMUnavailable, get_llm
 from memory.schema import get_conn
@@ -122,6 +123,8 @@ def chat(body: ChatIn) -> StreamingResponse:
         key=lambda c: (c["id"] not in touched, c["retention"]),
     )[:4]
 
+    use_llm = bool(settings.get("use_llm"))  # read now: the generator runs outside the request context
+
     def stream() -> Iterator[str]:
         yield _sse(
             {
@@ -135,7 +138,7 @@ def chat(body: ChatIn) -> StreamingResponse:
         )
         llm = get_llm()
         produced = False
-        if settings.get("use_llm") and llm.available:
+        if use_llm and llm.available:
             msgs = [{"role": t.role, "content": t.content} for t in body.history[-10:]]
             msgs.append({"role": "user", "content": body.message})
             try:
@@ -173,20 +176,20 @@ def cards_from_chat(body: CardsFromChatIn) -> dict:
     with get_conn() as conn:
         if concept_id is None:
             raise HTTPException(status_code=400, detail="concept_id is required")
-        c = conn.execute("SELECT * FROM concepts WHERE id = ?", (concept_id,)).fetchone()
+        c = conn.execute("SELECT * FROM concepts WHERE id = ? AND user_id = ?", (concept_id, uid())).fetchone()
         if c is None:
             raise HTTPException(status_code=404, detail="Concept not found")
     kws = (keyphrases([body.text]) or [[]])[0]
     drafts = generate_cards(c["name"], c["summary"], kws, [body.text], n_cards=body.n, use_llm=bool(settings.get("use_llm")))
     now = iso(utcnow())
     rows = [
-        (new_id("card"), concept_id, c["document_id"], d.kind, d.prompt, d.answer, d.explanation, "tutor", now)
+        (new_id("card"), uid(), concept_id, c["document_id"], d.kind, d.prompt, d.answer, d.explanation, "tutor", now)
         for d in drafts
     ]
     with get_conn() as conn:
         conn.executemany(
-            """INSERT INTO cards (id, concept_id, document_id, kind, prompt, answer, explanation, origin, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO cards (id, user_id, concept_id, document_id, kind, prompt, answer, explanation, origin, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
     return {"created": len(rows), "cards": [{"prompt": d.prompt, "answer": d.answer, "kind": d.kind} for d in drafts]}

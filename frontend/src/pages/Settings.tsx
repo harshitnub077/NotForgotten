@@ -1,12 +1,130 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Download, KeyRound, Settings as SettingsIcon, Trash2, UserRound } from 'lucide-react';
 import { api, type Settings as SettingsData } from '../api';
+import { useAuth } from '../auth';
 import { Btn, ErrorBox, SignBand, Skeleton, pct, useLoad, useTheme, useToast } from '../ui';
 
 // Relative review load vs. 90% target: interval ∝ (r^(1/−d) − 1), workload ∝ 1/interval.
 function relativeLoad(target: number, decay = 0.1542) {
   const iv = (r: number) => r ** (-1 / decay) - 1;
   return iv(0.9) / iv(target);
+}
+
+function AccountPanel() {
+  const { user, setUser } = useAuth();
+  const toast = useToast();
+  const [name, setName] = useState(user?.name ?? '');
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [deletePw, setDeletePw] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>) => {
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const download = () =>
+    run(async () => {
+      const data = await api.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `notforgotten-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+  if (!user) return null;
+  return (
+    <section className="surface">
+      <div className="panel-head">
+        <h2>Account</h2>
+        <span className="spacer muted small">{user.email}</span>
+      </div>
+      <div className="panel-body field-stack" style={{ gap: 22 }}>
+        <form
+          className="account-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(async () => {
+              const r = await api.updateProfile(name);
+              setUser(r.user);
+              toast('Name saved.');
+            });
+          }}
+        >
+          <label className="field" style={{ flex: 1 }}>
+            <span className="label">Name</span>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+          </label>
+          <Btn type="submit" size="sm" icon={<UserRound size={16} />} disabled={!name.trim() || name === user.name}>
+            Save
+          </Btn>
+        </form>
+
+        <form
+          className="account-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(async () => {
+              await api.changePassword(current, next);
+              setCurrent('');
+              setNext('');
+              toast('Password changed. Other devices were signed out.');
+            });
+          }}
+        >
+          <label className="field" style={{ flex: 1 }}>
+            <span className="label">Current password</span>
+            <input className="input" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+          </label>
+          <label className="field" style={{ flex: 1 }}>
+            <span className="label">New password</span>
+            <input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} />
+          </label>
+          <Btn type="submit" size="sm" icon={<KeyRound size={16} />} disabled={!current || next.length < 8}>
+            Change
+          </Btn>
+        </form>
+
+        <div className="account-row" style={{ alignItems: 'center' }}>
+          <p className="small" style={{ flex: 1 }}>
+            Download everything NotForgotten stores about you: sources, cards, reviews, exams and settings, as JSON.
+          </p>
+          <Btn size="sm" variant="secondary" className="on-ground" icon={<Download size={16} />} onClick={download}>
+            Export my data
+          </Btn>
+        </div>
+
+        <form
+          className="account-row danger-zone"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!window.confirm('Delete your account and everything in it? This cannot be undone.')) return;
+            run(async () => {
+              await api.deleteAccount(deletePw);
+              setUser(null);
+            });
+          }}
+        >
+          <label className="field" style={{ flex: 1 }}>
+            <span className="label">Delete account: confirm with your password</span>
+            <input className="input" type="password" value={deletePw} onChange={(e) => setDeletePw(e.target.value)} autoComplete="current-password" />
+          </label>
+          <Btn type="submit" size="sm" variant="danger" icon={<Trash2 size={16} />} disabled={!deletePw}>
+            Delete account
+          </Btn>
+        </form>
+        {error && <ErrorBox error={error} />}
+      </div>
+    </section>
+  );
 }
 
 export default function Settings() {
@@ -43,6 +161,7 @@ export default function Settings() {
     <>
       <SignBand icon={<SettingsIcon size={44} />} title="Settings" sub="Tune the schedule to your exam pressure and your time." />
       <div className="page narrow">
+        <AccountPanel />
         <section className="surface">
           <div className="panel-head">
             <h2>Scheduling</h2>
@@ -140,8 +259,7 @@ export default function Settings() {
           </div>
           <div className="panel-body field-stack">
             <p className="small muted">
-              Memory model: {draft.parameters_personalized ? 'personalised to your reviews' : 'population default (FSRS-6)'}. Everything is stored
-              locally on this machine.
+              Memory model: {draft.parameters_personalized ? 'personalised to your reviews' : 'population default (FSRS-6)'}. Your library is private to your account.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <Btn

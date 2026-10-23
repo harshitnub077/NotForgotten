@@ -128,8 +128,11 @@ export default function Landing() {
             <span className="brand-name">NotForgotten</span>
           </Link>
           <span className="spacer" />
-          <Btn to="/" size="sm">
-            Open app
+          <Link to="/login" className="land-login">
+            Log in
+          </Link>
+          <Btn to="/signup" size="sm">
+            Sign up
           </Btn>
         </nav>
         <div className="land-hero">
@@ -140,8 +143,8 @@ export default function Landing() {
               from your exam.
             </p>
             <div className="land-ctas">
-              <Btn to="/" size="big">
-                Start studying
+              <Btn to="/signup" size="big">
+                Start studying free
               </Btn>
               <Btn to="/library" size="big" variant="secondary" icon={<FileUp size={24} />}>
                 Add your first PDF
@@ -267,8 +270,8 @@ export default function Landing() {
         </h2>
         <p className="land-sub">Free and local. Works without an AI key; smarter with one.</p>
         <div className="land-ctas">
-          <Btn to="/" size="big">
-            Open NotForgotten
+          <Btn to="/signup" size="big">
+            Create your account
           </Btn>
         </div>
       </section>
