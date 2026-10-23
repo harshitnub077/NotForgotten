@@ -1,9 +1,11 @@
 name: Deploy to Hugging Face
 
 # Every push to main publishes a snapshot of the app to a Hugging Face Docker
-# Space, which rebuilds and serves it. Configure once (see docs/DEPLOY_HF.md):
-#   repository variable  HF_SPACE  e.g. "your-username/notforgotten"
-#   repository secret    HF_TOKEN  a Hugging Face token with write access
+# Space, creating and configuring the Space on first run. Configure once in
+# GitHub (see docs/DEPLOY_HF.md):
+#   variable  HF_SPACE           e.g. "your-hf-username/notforgotten-app"
+#   secret    HF_TOKEN           Hugging Face token with the "Write" role
+#   secrets   DATABASE_URL, GROQ_API_KEY, BETA_INVITE_CODES   (app settings)
 on:
   push:
     branches: [main]
@@ -54,31 +56,21 @@ jobs:
           if [ -n "$BINARIES" ]; then echo "Binary files would be rejected by the Hub:"; echo "$BINARIES"; exit 1; fi
           echo "SPACE_DIR=$SPACE_DIR" >> "$GITHUB_ENV"
 
-      - name: Use the free CPU hardware
-        run: |
-          set -euo pipefail
-          if [ -z "${HF_TOKEN}" ]; then echo "Add the HF_TOKEN repository secret first."; exit 1; fi
-          # Spaces created from a Gradio template may default to ZeroGPU, which
-          # cannot run Docker apps. Request CPU basic (free) explicitly.
-          CODE=$(curl -s -o hw.json -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer ${HF_TOKEN}" -H "Content-Type: application/json" \
-            -d '{"flavor": "cpu-basic"}' "https://huggingface.co/api/spaces/${HF_SPACE}/hardware")
-          echo "hardware request: HTTP $CODE"; cat hw.json; echo
-          if [ "$CODE" = "402" ]; then
-            echo "This Space was created on paid/ZeroGPU hardware, and Hugging Face only lets PRO"
-            echo "accounts move it to CPU basic. Delete the Space and create it again with"
-            echo "SDK = Docker and hardware = CPU basic (free); see docs/DEPLOY_HF.md."
-            exit 1
-          elif [ "$CODE" -ge 400 ]; then
-            echo "Could not set the hardware. Give HF_TOKEN write access to this Space's settings,"
-            echo "or pick 'CPU basic' under Settings -> Space hardware on Hugging Face."
-            exit 1
-          fi
+      - name: Create and configure the Space
+        id: space
+        # Creates the Space if needed (Docker, free CPU basic), fixes its hardware,
+        # and copies the app's secrets and settings from GitHub. See the script.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BETA_INVITE_CODES: ${{ secrets.BETA_INVITE_CODES }}
+        run: python3 .github/scripts/hf_space.py
 
       - name: Push to the Space
         run: |
           set -euo pipefail
-          if [ -z "${HF_TOKEN}" ]; then echo "Add the HF_TOKEN repository secret first."; exit 1; fi
           cd "$SPACE_DIR"
           git init -q -b main
           git config user.name "notforgotten-deploy"
@@ -91,9 +83,7 @@ jobs:
       - name: Wait for the Space to build and answer
         run: |
           set -euo pipefail
-          # Space URL: owner-name.hf.space, lowercased, '.' and '_' become '-'.
-          SUB=$(echo "${HF_SPACE/\//-}" | tr '[:upper:]' '[:lower:]' | tr '._' '--')
-          URL="https://${SUB}.hf.space"
+          URL="${{ steps.space.outputs.url }}"
           echo "Space URL: $URL"
           for i in $(seq 1 70); do
             STAGE=$(curl -s -H "Authorization: Bearer ${HF_TOKEN}" \
