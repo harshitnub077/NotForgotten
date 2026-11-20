@@ -1,96 +1,101 @@
 """FastAPI application entry point."""
 from __future__ import annotations
 
-import os
-import threading
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
-from api.routes import auth, cards, concepts, documents, exams, insights, review, system, tutor
-from api.routes.auth import require_user
+from api.routes.dashboard import router as dashboard_router
+from api.routes.ingestion import router as ingestion_router
+from api.routes.session import router as session_router
+from api.routes.chat import router as chat_router
+from api.routes.graph import router as graph_router
+from api.routes.concepts import router as concepts_router
 from memory.schema import init_db
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Bootstrap DB and warm up embedder on startup."""
+    print("[Startup] Initialising SQLite schema …")
     init_db()
 
-    def warm() -> None:
-        from ingestion.embedder import get_embedder
+    print("[Startup] Pre-loading embedding model …")
+    from ingestion.embedder import get_embedder
+    get_embedder()
 
-        get_embedder()
-
-    # Load the embedding model in the background so the API answers immediately.
-    threading.Thread(target=warm, daemon=True).start()
+    print("[Startup] Ready. 🧠")
     yield
+    print("[Shutdown] NotForgotten shutting down.")
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 
 
 app = FastAPI(
     title="NotForgotten",
     description=(
-        "Memory-aware learning engine: FSRS-6 scheduling, concept knowledge graphs, "
-        "typed-recall grading and an AI tutor that knows what you're forgetting."
+        "AI-powered spaced repetition learning system. "
+        "Combines semantic search with the Ebbinghaus forgetting curve "
+        "to surface what you're about to forget, before you forget it."
     ),
-    version="2.1.0",
+    version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+# CORS — allow all origins for local dev (tighten in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class OriginGuard:
-    """
-    Reject cross-site state-changing requests (CSRF defence in depth on top of
-    SameSite=Lax cookies): a POST/PATCH/DELETE whose Origin header names a
-    site other than this one or an allowed CORS origin is refused.
-    """
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
-    SAFE = {"GET", "HEAD", "OPTIONS"}
-
-    def __init__(self, app, allowed):
-        self.app = app
-        self.allowed = set(allowed)
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["method"] not in self.SAFE:
-            headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
-            origin = headers.get("origin")
-            host = headers.get("host", "")
-            if origin and origin not in self.allowed and origin.split("://", 1)[-1] != host:
-                body = b'{"detail":"Cross-site request blocked."}'
-                await send({"type": "http.response.start", "status": 403,
-                            "headers": [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": body})
-                return
-        await self.app(scope, receive, send)
+app.include_router(session_router)
+app.include_router(dashboard_router)
+app.include_router(ingestion_router)
+app.include_router(chat_router)
+app.include_router(graph_router)
+app.include_router(concepts_router)
 
 
-app.add_middleware(OriginGuard, allowed=_origins)
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
 
-app.include_router(system.public, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-for module in (system, documents, concepts, cards, review, insights, tutor, exams):
-    app.include_router(module.router, prefix="/api", dependencies=[Depends(require_user)])
 
-# Serve the built frontend (npm run build) from the same origin in production.
-_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-if _DIST.exists():
-    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+@app.get("/health", tags=["meta"])
+def health() -> dict:
+    return {"status": "ok", "service": "NotForgotten"}
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        target = _DIST / path
-        if path and target.is_file() and _DIST in target.resolve().parents:
-            return FileResponse(target)
-        return FileResponse(_DIST / "index.html")
+
+@app.get("/", tags=["meta"])
+def root() -> dict:
+    return {
+        "message": "NotForgotten API",
+        "docs": "/docs",
+        "endpoints": [
+            "POST /session/start",
+            "POST /session/query",
+            "POST /session/rate",
+            "POST /ingest",
+            "GET  /dashboard",
+            "POST /chat",
+            "GET  /graph",
+        ],
+    }
